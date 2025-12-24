@@ -47,34 +47,58 @@ docker-compose up -d
 
 ---
 
-### 1. Generate SSH Key
+### 1. Synology NAS Preparation
+
+Before setting up the container, configure your Synology NAS:
+
+1. **Enable SSH**: Control Panel → Terminal & SNMP → Enable SSH service
+2. **Enable User Home Service**: Control Panel → User & Group → Advanced → Enable user home service
+3. **Enable rsync Service**: Control Panel → File Services → rsync → Enable rsync service
+4. **Folder Permissions**: Ensure your SSH user has read/write access to the destination folders
+
+### 2. Generate SSH Key
+
+Generate the key on your Docker host:
 
 ```bash
-# Generate a dedicated SSH key for NAS access
-ssh-keygen -t ed25519 -f ./nas-sync-key -N ""
-
-# Copy the public key to your NAS
-ssh-copy-id -i ./nas-sync-key.pub your-user@your-nas-ip
+ssh-keygen -t ed25519 -f ~/.ssh/nas-sync-key -N ""
 ```
 
-### 2. Configure docker-compose.yml
+Copy the public key to your NAS:
+
+```bash
+ssh-copy-id -i ~/.ssh/nas-sync-key.pub your-user@your-nas-ip
+```
+
+Test the connection works without a password:
+
+```bash
+ssh -i ~/.ssh/nas-sync-key your-user@your-nas-ip
+```
+
+### 3. Configure docker-compose.yml
+
+Create the config directory and copy the SSH key:
+
+```bash
+mkdir -p ./config
+cp ~/.ssh/nas-sync-key ./config/id_rsa
+chmod 600 ./config/id_rsa
+```
+
+Add to your docker-compose.yml:
 
 ```yaml
-version: '3.8'
-
 services:
   nas-sync:
-    build: .
+    image: ghcr.io/YOUR_USERNAME/nas-sync:latest
     container_name: nas-sync
     restart: unless-stopped
     ports:
       - "8080:8080"
     volumes:
-      # Config and database
+      # Config directory (contains database and SSH key)
       - ./config:/config
-      
-      # SSH key (required)
-      - ./nas-sync-key:/config/id_rsa:ro
       
       # Your download folders (adjust paths)
       - /path/to/downloads/movies:/data/movies
@@ -85,15 +109,25 @@ services:
       - TZ=Europe/London
 ```
 
-### 3. Build and Run
+### 4. Build and Run
 
 ```bash
 docker-compose up -d
 ```
 
-### 4. Access the Web UI
+### 5. Access the Web UI
 
 Open `http://your-server:8080` in your browser.
+
+### 6. Configure NAS Connection
+
+In the Settings tab:
+- **Hostname/IP**: Your NAS IP (e.g., `192.168.1.53`)
+- **SSH User**: Your Synology username
+- **SSH Key Path**: `/config/id_rsa` (default)
+- **SSH Port**: `22` (default)
+
+Click "Test Connection" to verify everything works.
 
 ## Configuration
 
@@ -146,7 +180,29 @@ Trigger actions after successful syncs:
 
 ## Synology NAS Setup
 
-### Enable SSH
+### Required Settings
+
+Before NAS Sync will work, you need to enable these on your Synology:
+
+| Setting | Location | Why |
+|---------|----------|-----|
+| SSH | Control Panel → Terminal & SNMP | Allows SSH connections |
+| User Home Service | Control Panel → User & Group → Advanced | Creates ~/.ssh folder for authorized_keys |
+| rsync Service | Control Panel → File Services → rsync | Enables rsync binary for remote transfers |
+
+### Folder Paths
+
+Synology shared folder paths follow this format:
+- `/volume1/SharedFolderName/subfolder`
+
+For example:
+- `/volume1/Media/Movies`
+- `/volume1/Media/TV`
+- `/volume1/Downloads/ISOs`
+
+You can find your volume number in Storage Manager.
+
+### User Permissions
 
 1. Control Panel → Terminal & SNMP
 2. Enable SSH service
@@ -159,13 +215,6 @@ Ensure your SSH user has write access to the destination folders:
 1. Control Panel → Shared Folder
 2. Edit permissions for target folders
 3. Grant Read/Write to your SSH user
-
-### Find Your Plex Token (if using Plex on Synology)
-
-1. Open Plex Web UI
-2. Play any media
-3. Click the `...` menu → Get Info → View XML
-4. Find `X-Plex-Token` in the URL
 
 ## Troubleshooting
 
