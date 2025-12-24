@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NAS Sync</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1><span class="icon">🔄</span> NAS Sync</h1>
+            <div class="status-indicator">
+                <div id="next-sync-time" style="color: var(--text-secondary); font-size: 0.9rem;">Loading...</div>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <div id="nas-status-dot" class="status-dot"></div>
+                    <span id="nas-status-text">Checking...</span>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <div class="container">
+        <nav class="tabs">
+            <button class="tab active" data-tab="dashboard">Dashboard</button>
+            <button class="tab" data-tab="mappings">Folder Mappings</button>
+            <button class="tab" data-tab="logs">Sync Logs</button>
+            <button class="tab" data-tab="settings">Settings</button>
+        </nav>
+
+        <!-- Dashboard Tab -->
+        <div id="tab-dashboard" class="tab-content active">
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-value" id="stat-mappings">-</div>
+                    <div class="stat-label">Total Mappings</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="stat-enabled">-</div>
+                    <div class="stat-label">Enabled</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="stat-success">-</div>
+                    <div class="stat-label">Successful Syncs</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="stat-errors">-</div>
+                    <div class="stat-label">Errors</div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title">Quick Actions</h3>
+                </div>
+                <div class="btn-group">
+                    <button class="btn btn-primary" onclick="syncAll()">▶ Sync All Now</button>
+                    <button class="btn btn-secondary" onclick="updateNasStatus()">🔄 Refresh Status</button>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title">Recent Activity</h3>
+                </div>
+                <div id="recent-logs">
+                    <div class="empty-state">Loading...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Mappings Tab -->
+        <div id="tab-mappings" class="tab-content">
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title">Folder Mappings</h3>
+                    <button class="btn btn-primary" onclick="openAddMappingModal()">+ Add Mapping</button>
+                </div>
+                <div id="mappings-list" class="table-container">
+                    <div class="empty-state">Loading...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Logs Tab -->
+        <div id="tab-logs" class="tab-content">
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title">Sync Logs</h3>
+                    <button class="btn btn-secondary" onclick="loadLogs()">🔄 Refresh</button>
+                </div>
+                <div id="logs-list" class="table-container">
+                    <div class="empty-state">Loading...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Settings Tab -->
+        <div id="tab-settings" class="tab-content">
+            <!-- NAS Configuration -->
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title">NAS Configuration</h3>
+                </div>
+                <form onsubmit="event.preventDefault(); saveNasConfig();">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Hostname / IP</label>
+                            <input type="text" id="nas-hostname" placeholder="192.168.1.100">
+                        </div>
+                        <div class="form-group">
+                            <label>SSH User</label>
+                            <input type="text" id="nas-user" placeholder="admin">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>SSH Key Path</label>
+                            <input type="text" id="nas-key-path" value="/config/id_rsa">
+                        </div>
+                        <div class="form-group">
+                            <label>SSH Port</label>
+                            <input type="number" id="nas-port" value="22">
+                        </div>
+                    </div>
+                    <div class="btn-group">
+                        <button type="submit" class="btn btn-primary">Save Configuration</button>
+                        <button type="button" class="btn btn-secondary" onclick="testNasConnection()">Test Connection</button>
+                    </div>
+                </form>
+            </div>
+
+            <!-- Scheduler Configuration -->
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title">Scheduler</h3>
+                </div>
+                <form onsubmit="event.preventDefault(); saveSchedulerConfig();">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-checkbox">
+                                <input type="checkbox" id="scheduler-enabled">
+                                <span>Enable automatic sync</span>
+                            </label>
+                        </div>
+                        <div class="form-group">
+                            <label>Interval (minutes)</label>
+                            <input type="number" id="scheduler-interval" min="1" value="15">
+                        </div>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Save Scheduler Settings</button>
+                </form>
+            </div>
+
+            <!-- Post-Sync Actions -->
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title">Post-Sync Actions</h3>
+                    <button class="btn btn-primary btn-sm" onclick="openAddActionModal()">+ Add Action</button>
+                </div>
+                <div id="actions-list">
+                    <div class="empty-state">Loading...</div>
+                </div>
+            </div>
+
+            <!-- SSH Key Info -->
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title">SSH Key Setup</h3>
+                </div>
+                <p style="color: var(--text-secondary); margin-bottom: 15px;">
+                    To enable passwordless SSH access to your NAS, you need to:
+                </p>
+                <ol style="color: var(--text-secondary); padding-left: 20px;">
+                    <li>Generate an SSH key pair (if you don't have one)</li>
+                    <li>Mount the private key to <code>/config/id_rsa</code> in the container</li>
+                    <li>Add the public key to your NAS's authorized_keys</li>
+                </ol>
+                <pre style="background: var(--bg-secondary); padding: 15px; border-radius: 6px; margin-top: 15px; overflow-x: auto;">
+# Generate key (on host):
+ssh-keygen -t ed25519 -f ./nas-sync-key -N ""
+
+# Copy public key to NAS:
+ssh-copy-id -i ./nas-sync-key.pub user@nas-ip
+
+# Mount private key in docker-compose.yml:
+volumes:
+  - ./nas-sync-key:/config/id_rsa:ro</pre>
+            </div>
+        </div>
+    </div>
+
+    <!-- Mapping Modal -->
+    <div id="mapping-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title" id="mapping-modal-title">Add Folder Mapping</h3>
+                <button class="modal-close" onclick="closeModal('mapping-modal')">&times;</button>
+            </div>
+            <form id="mapping-form" onsubmit="event.preventDefault(); saveMapping();">
+                <input type="hidden" id="mapping-id">
+                <div class="form-group">
+                    <label>Name</label>
+                    <input type="text" id="mapping-name" placeholder="e.g., Movies" required>
+                </div>
+                <div class="form-group">
+                    <label>Source Path (Local)</label>
+                    <input type="text" id="mapping-source" placeholder="/data/downloads/movies" required>
+                </div>
+                <div class="form-group">
+                    <label>Destination Path (NAS)</label>
+                    <input type="text" id="mapping-dest" placeholder="/volume1/media/movies" required>
+                </div>
+                <div class="form-group">
+                    <label class="form-checkbox">
+                        <input type="checkbox" id="mapping-enabled" checked>
+                        <span>Enabled</span>
+                    </label>
+                </div>
+                <div class="form-group">
+                    <label class="form-checkbox">
+                        <input type="checkbox" id="mapping-delete-source">
+                        <span>Delete source files after successful sync</span>
+                    </label>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" onclick="closeModal('mapping-modal')">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Action Modal -->
+    <div id="action-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title">Add Post-Sync Action</h3>
+                <button class="modal-close" onclick="closeModal('action-modal')">&times;</button>
+            </div>
+            <form id="action-form" onsubmit="event.preventDefault(); saveAction();">
+                <input type="hidden" id="action-id">
+                <div class="form-group">
+                    <label>Name</label>
+                    <input type="text" id="action-name" placeholder="e.g., Refresh Plex" required>
+                </div>
+                <div class="form-group">
+                    <label>Action Type</label>
+                    <select id="action-type" onchange="updateActionConfigFields()">
+                        <option value="plex_refresh">Plex Library Refresh</option>
+                        <option value="webhook">Generic Webhook</option>
+                    </select>
+                </div>
+                <div id="action-config-fields">
+                    <!-- Dynamic fields based on action type -->
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" onclick="closeModal('action-modal')">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Toast Container -->
+    <div id="toast-container" class="toast-container"></div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,46 @@
+version: '3.8'
+
+services:
+  nas-sync:
+    build: .
+    container_name: nas-sync
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      # Configuration and database
+      - ./config:/config
+      
+      # SSH key for NAS access (create this key first)
+      # - ./nas-sync-key:/config/id_rsa:ro
+      
+      # Mount your download directories here
+      # Example mappings - adjust to your setup:
+      # - /path/to/downloads/movies:/data/movies:ro
+      # - /path/to/downloads/tv:/data/tv:ro
+      # - /path/to/downloads/isos:/data/isos:ro
+      
+    environment:
+      - TZ=Europe/London
+    
+    # Optional: If you need to resolve NAS by hostname
+    # extra_hosts:
+    #   - "nas:192.168.1.100"
+
+# Example with actual volume mappings:
+#
+# services:
+#   nas-sync:
+#     build: .
+#     container_name: nas-sync
+#     restart: unless-stopped
+#     ports:
+#       - "8080:8080"
+#     volumes:
+#       - ./config:/config
+#       - ./nas-sync-key:/config/id_rsa:ro
+#       - /mnt/downloads/movies:/data/movies
+#       - /mnt/downloads/tv:/data/tv
+#       - /mnt/downloads/isos:/data/isos
+#     environment:
+#       - TZ=Europe/London
