@@ -22,11 +22,6 @@ async def scheduled_sync():
         logger.error(f"Scheduled sync error: {e}")
 
 
-def sync_job_wrapper():
-    """Synchronous wrapper to run async sync in scheduler."""
-    asyncio.create_task(scheduled_sync())
-
-
 async def update_scheduler():
     """Update scheduler based on current config."""
     config = await get_scheduler_config()
@@ -37,7 +32,7 @@ async def update_scheduler():
     
     if config['enabled']:
         scheduler.add_job(
-            sync_job_wrapper,
+            scheduled_sync,
             trigger=IntervalTrigger(minutes=config['interval_minutes']),
             id=JOB_ID,
             replace_existing=True
