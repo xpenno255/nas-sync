@@ -82,6 +82,52 @@ async def init_db():
             VALUES (1, 1, 15)
         """)
 
+        # F1 organizer config table
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS f1_config (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                watch_folder TEXT NOT NULL DEFAULT '',
+                output_folder TEXT NOT NULL DEFAULT '',
+                tvdb_api_key TEXT NOT NULL DEFAULT '',
+                enabled INTEGER DEFAULT 0,
+                scan_interval_minutes INTEGER DEFAULT 15,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        # F1 episode cache from TheTVDB
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS f1_episodes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                season INTEGER NOT NULL,
+                episode_number INTEGER NOT NULL,
+                episode_name TEXT NOT NULL,
+                air_date TEXT,
+                cached_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(season, episode_number)
+            )
+        """)
+
+        # F1 activity log
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS f1_activity_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                original_filename TEXT NOT NULL,
+                new_filename TEXT,
+                season INTEGER,
+                episode_number INTEGER,
+                status TEXT NOT NULL,
+                message TEXT,
+                processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        # Insert default F1 config if not exists
+        await db.execute("""
+            INSERT OR IGNORE INTO f1_config (id, watch_folder, output_folder, tvdb_api_key)
+            VALUES (1, '', '', '')
+        """)
+
         await db.commit()
 
 
@@ -263,3 +309,97 @@ async def delete_post_sync_action(action_id: int):
     async with aiosqlite.connect(DATABASE_PATH) as db:
         await db.execute("DELETE FROM post_sync_actions WHERE id = ?", (action_id,))
         await db.commit()
+
+
+# F1 Config functions
+async def get_f1_config():
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("SELECT * FROM f1_config WHERE id = 1") as cursor:
+            row = await cursor.fetchone()
+            return dict(row) if row else {
+                "watch_folder": "", "output_folder": "", "tvdb_api_key": "",
+                "enabled": 0, "scan_interval_minutes": 15
+            }
+
+
+async def save_f1_config(watch_folder: str, output_folder: str, tvdb_api_key: str,
+                         enabled: bool, scan_interval_minutes: int):
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        await db.execute("""
+            INSERT INTO f1_config (id, watch_folder, output_folder, tvdb_api_key, enabled, scan_interval_minutes, updated_at)
+            VALUES (1, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(id) DO UPDATE SET
+                watch_folder = excluded.watch_folder,
+                output_folder = excluded.output_folder,
+                tvdb_api_key = excluded.tvdb_api_key,
+                enabled = excluded.enabled,
+                scan_interval_minutes = excluded.scan_interval_minutes,
+                updated_at = CURRENT_TIMESTAMP
+        """, (watch_folder, output_folder, tvdb_api_key, int(enabled), scan_interval_minutes))
+        await db.commit()
+
+
+# F1 Episode cache functions
+async def get_f1_episodes(season: int):
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM f1_episodes WHERE season = ? ORDER BY episode_number",
+            (season,)
+        ) as cursor:
+            rows = await cursor.fetchall()
+            return [dict(row) for row in rows]
+
+
+async def has_f1_season_cache(season: int) -> bool:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        async with db.execute(
+            "SELECT COUNT(*) FROM f1_episodes WHERE season = ?", (season,)
+        ) as cursor:
+            row = await cursor.fetchone()
+            return row[0] > 0
+
+
+async def save_f1_episodes(season: int, episodes: list):
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        # Clear existing cache for this season
+        await db.execute("DELETE FROM f1_episodes WHERE season = ?", (season,))
+        for ep in episodes:
+            await db.execute("""
+                INSERT INTO f1_episodes (season, episode_number, episode_name, air_date)
+                VALUES (?, ?, ?, ?)
+            """, (season, ep['episode_number'], ep['episode_name'], ep.get('air_date')))
+        await db.commit()
+
+
+async def clear_f1_episode_cache(season: int = None):
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        if season:
+            await db.execute("DELETE FROM f1_episodes WHERE season = ?", (season,))
+        else:
+            await db.execute("DELETE FROM f1_episodes")
+        await db.commit()
+
+
+# F1 Activity log functions
+async def create_f1_activity_log(original_filename: str, new_filename: str = None,
+                                  season: int = None, episode_number: int = None,
+                                  status: str = "moved", message: str = None):
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        await db.execute("""
+            INSERT INTO f1_activity_log (original_filename, new_filename, season, episode_number, status, message)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (original_filename, new_filename, season, episode_number, status, message))
+        await db.commit()
+
+
+async def get_f1_activity_log(limit: int = 50):
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM f1_activity_log ORDER BY processed_at DESC LIMIT ?",
+            (limit,)
+        ) as cursor:
+            rows = await cursor.fetchall()
+            return [dict(row) for row in rows]

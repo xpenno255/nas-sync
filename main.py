@@ -1,5 +1,6 @@
 import logging
 from contextlib import asynccontextmanager
+from datetime import datetime
 from pathlib import Path
 
 from fastapi import FastAPI, Request, HTTPException
@@ -16,7 +17,9 @@ from database import (
     get_recent_sync_logs, get_mapping_sync_logs,
     get_scheduler_config, save_scheduler_config,
     get_post_sync_actions, create_post_sync_action,
-    update_post_sync_action, delete_post_sync_action
+    update_post_sync_action, delete_post_sync_action,
+    get_f1_config, save_f1_config, get_f1_episodes,
+    get_f1_activity_log, clear_f1_episode_cache
 )
 from sync_engine import (
     check_nas_online, test_ssh_connection, run_sync_all,
@@ -24,8 +27,9 @@ from sync_engine import (
 )
 from scheduler import (
     start_scheduler, stop_scheduler, update_scheduler,
-    get_scheduler_status
+    update_f1_scheduler, get_scheduler_status
 )
+from f1_organizer import scan_and_organize, refresh_episode_cache, get_f1_scan_status
 
 # Configure logging
 logging.basicConfig(
@@ -43,6 +47,7 @@ async def lifespan(app: FastAPI):
     await init_db()
     start_scheduler()
     await update_scheduler()
+    await update_f1_scheduler()
     yield
     # Shutdown
     stop_scheduler()
@@ -82,6 +87,14 @@ class PostSyncActionRequest(BaseModel):
     action_type: str
     config: dict
     enabled: bool = True
+
+
+class F1ConfigRequest(BaseModel):
+    watch_folder: str
+    output_folder: str
+    tvdb_api_key: str = ""
+    enabled: bool = False
+    scan_interval_minutes: int = 15
 
 
 # Web UI route
@@ -269,6 +282,72 @@ async def api_update_action(action_id: int, action: PostSyncActionRequest):
 async def api_delete_action(action_id: int):
     await delete_post_sync_action(action_id)
     return {"status": "ok"}
+
+
+# F1 Organizer API
+@app.get("/api/f1/config")
+async def api_get_f1_config():
+    config = await get_f1_config()
+    return {"config": config}
+
+
+@app.post("/api/f1/config")
+async def api_save_f1_config(config: F1ConfigRequest):
+    await save_f1_config(
+        watch_folder=config.watch_folder,
+        output_folder=config.output_folder,
+        tvdb_api_key=config.tvdb_api_key,
+        enabled=config.enabled,
+        scan_interval_minutes=config.scan_interval_minutes
+    )
+    await update_f1_scheduler()
+    return {"status": "ok"}
+
+
+@app.post("/api/f1/scan")
+async def api_f1_scan():
+    result = await scan_and_organize()
+    return result
+
+
+@app.post("/api/f1/refresh-cache")
+async def api_f1_refresh_cache(season: int = None):
+    config = await get_f1_config()
+    api_key = config.get("tvdb_api_key", "")
+    if not api_key:
+        return {"status": "error", "reason": "TheTVDB API key not configured"}
+
+    target_season = season or datetime.now().year
+    success = await refresh_episode_cache(api_key, target_season)
+    if success:
+        episodes = await get_f1_episodes(target_season)
+        return {"status": "ok", "season": target_season, "episodes_cached": len(episodes)}
+    else:
+        return {"status": "error", "reason": "Failed to fetch episodes from TheTVDB"}
+
+
+@app.get("/api/f1/episodes")
+async def api_get_f1_episodes(season: int = None):
+    target_season = season or datetime.now().year
+    episodes = await get_f1_episodes(target_season)
+    return {"episodes": episodes, "season": target_season}
+
+
+@app.get("/api/f1/activity")
+async def api_get_f1_activity(limit: int = 50):
+    activity = await get_f1_activity_log(limit)
+    return {"activity": activity}
+
+
+@app.get("/api/f1/status")
+async def api_get_f1_status():
+    scan_status = get_f1_scan_status()
+    scheduler_status = get_scheduler_status()
+    return {
+        "scan": scan_status,
+        "f1_job_active": scheduler_status.get("f1_job_active", False),
+        "f1_next_run": scheduler_status.get("f1_next_run")
+    }
 
 
 if __name__ == "__main__":

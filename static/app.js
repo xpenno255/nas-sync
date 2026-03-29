@@ -37,6 +37,7 @@ function switchTab(tabName) {
     // Load tab-specific data
     if (tabName === 'dashboard') loadDashboard();
     else if (tabName === 'mappings') loadMappings();
+    else if (tabName === 'f1') loadF1();
     else if (tabName === 'logs') loadLogs();
     else if (tabName === 'settings') loadSettings();
 }
@@ -542,6 +543,149 @@ async function deleteAction(id) {
     await api(`/actions/${id}`, 'DELETE');
     showToast('Action deleted');
     loadPostSyncActions();
+}
+
+// F1 Organizer Functions
+async function loadF1() {
+    await loadF1Config();
+    await loadF1Episodes();
+    await loadF1Activity();
+}
+
+async function loadF1Config() {
+    const data = await api('/f1/config');
+    const config = data.config;
+    document.getElementById('f1-watch-folder').value = config.watch_folder || '';
+    document.getElementById('f1-output-folder').value = config.output_folder || '';
+    document.getElementById('f1-tvdb-key').value = config.tvdb_api_key || '';
+    document.getElementById('f1-scan-interval').value = config.scan_interval_minutes || 15;
+    document.getElementById('f1-enabled').checked = !!config.enabled;
+
+    // Set default season year
+    const seasonInput = document.getElementById('f1-season-select');
+    if (!seasonInput.value) {
+        seasonInput.value = new Date().getFullYear();
+    }
+}
+
+async function saveF1Config() {
+    const data = {
+        watch_folder: document.getElementById('f1-watch-folder').value,
+        output_folder: document.getElementById('f1-output-folder').value,
+        tvdb_api_key: document.getElementById('f1-tvdb-key').value,
+        enabled: document.getElementById('f1-enabled').checked,
+        scan_interval_minutes: parseInt(document.getElementById('f1-scan-interval').value) || 15
+    };
+
+    if (!data.watch_folder || !data.output_folder) {
+        showToast('Watch folder and output folder are required', 'error');
+        return;
+    }
+
+    await api('/f1/config', 'POST', data);
+    showToast('F1 configuration saved');
+}
+
+async function loadF1Episodes() {
+    const season = document.getElementById('f1-season-select').value || new Date().getFullYear();
+    const data = await api(`/f1/episodes?season=${season}`);
+    const container = document.getElementById('f1-episodes-list');
+
+    if (!data.episodes || data.episodes.length === 0) {
+        container.innerHTML = `
+            <div class="empty-state">
+                <div class="empty-state-icon">&#127947;</div>
+                <p>No cached episodes for season ${season}. Configure your TheTVDB API key and click Refresh.</p>
+            </div>
+        `;
+        return;
+    }
+
+    container.innerHTML = `
+        <table>
+            <thead>
+                <tr>
+                    <th>Ep #</th>
+                    <th>Episode Name</th>
+                    <th>Air Date</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${data.episodes.map(ep => `
+                    <tr>
+                        <td>S${season}E${String(ep.episode_number).padStart(2, '0')}</td>
+                        <td>${ep.episode_name}</td>
+                        <td>${ep.air_date || '-'}</td>
+                    </tr>
+                `).join('')}
+            </tbody>
+        </table>
+    `;
+}
+
+async function loadF1Activity() {
+    const data = await api('/f1/activity');
+    const container = document.getElementById('f1-activity-list');
+
+    if (!data.activity || data.activity.length === 0) {
+        container.innerHTML = `
+            <div class="empty-state">
+                <div class="empty-state-icon">&#128203;</div>
+                <p>No activity yet. Run a scan to process F1 episodes.</p>
+            </div>
+        `;
+        return;
+    }
+
+    container.innerHTML = `
+        <table>
+            <thead>
+                <tr>
+                    <th>Time</th>
+                    <th>Original File</th>
+                    <th>New Name</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${data.activity.map(a => `
+                    <tr>
+                        <td>${formatDate(a.processed_at)}</td>
+                        <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${a.original_filename}">${a.original_filename}</td>
+                        <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${a.new_filename || '-'}">${a.new_filename || '-'}</td>
+                        <td><span class="badge badge-${a.status === 'moved' ? 'success' : a.status === 'unmatched' ? 'warning' : 'error'}">${a.status}</span></td>
+                    </tr>
+                `).join('')}
+            </tbody>
+        </table>
+    `;
+}
+
+async function f1Scan() {
+    showToast('Starting F1 scan...');
+    const result = await api('/f1/scan', 'POST');
+
+    if (result.status === 'completed') {
+        showToast(`F1 scan complete: ${result.moved} moved, ${result.unmatched} unmatched`);
+    } else {
+        showToast(`F1 scan ${result.status}: ${result.reason || ''}`, 'error');
+    }
+
+    loadF1Activity();
+}
+
+async function f1RefreshCache() {
+    const season = document.getElementById('f1-season-select').value || new Date().getFullYear();
+    showToast(`Refreshing TheTVDB cache for season ${season}...`);
+
+    const result = await api(`/f1/refresh-cache?season=${season}`, 'POST');
+
+    if (result.status === 'ok') {
+        showToast(`Cached ${result.episodes_cached} episodes for season ${result.season}`);
+        loadF1Episodes();
+    } else {
+        showToast(`Cache refresh failed: ${result.reason}`, 'error');
+    }
 }
 
 // Initialize

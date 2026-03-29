@@ -24,6 +24,7 @@
         <nav class="tabs">
             <button class="tab active" data-tab="dashboard">Dashboard</button>
             <button class="tab" data-tab="mappings">Folder Mappings</button>
+            <button class="tab" data-tab="f1">F1 Organizer</button>
             <button class="tab" data-tab="logs">Sync Logs</button>
             <button class="tab" data-tab="settings">Settings</button>
         </nav>
@@ -78,6 +79,74 @@
                 </div>
                 <div id="mappings-list" class="table-container">
                     <div class="empty-state">Loading...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- F1 Organizer Tab -->
+        <div id="tab-f1" class="tab-content">
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title">F1 Organizer Configuration</h3>
+                    <div style="display: flex; gap: 8px;">
+                        <button class="btn btn-success" onclick="f1Scan()">Scan Now</button>
+                        <button class="btn btn-secondary" onclick="f1RefreshCache()">Refresh TheTVDB</button>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Watch Folder</label>
+                        <input type="text" id="f1-watch-folder" placeholder="/downloads/f1">
+                    </div>
+                    <div class="form-group">
+                        <label>Output Folder</label>
+                        <input type="text" id="f1-output-folder" placeholder="/media">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>TheTVDB API Key</label>
+                        <input type="password" id="f1-tvdb-key" placeholder="Your TheTVDB API key">
+                    </div>
+                    <div class="form-group">
+                        <label>Scan Interval (minutes)</label>
+                        <input type="number" id="f1-scan-interval" value="15" min="1">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="form-checkbox">
+                        <input type="checkbox" id="f1-enabled">
+                        <span>Enable scheduled scanning</span>
+                    </label>
+                </div>
+                <button class="btn btn-primary" onclick="saveF1Config()">Save Configuration</button>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title">Cached Episodes</h3>
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                        <label>Season:</label>
+                        <input type="number" id="f1-season-select" value="" style="width: 80px;" onchange="loadF1Episodes()">
+                    </div>
+                </div>
+                <div id="f1-episodes-list">
+                    <div class="empty-state">
+                        <div class="empty-state-icon">&#127947;</div>
+                        <p>No cached episodes. Configure your TheTVDB API key and click Refresh.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title">Activity Log</h3>
+                </div>
+                <div id="f1-activity-list">
+                    <div class="empty-state">
+                        <div class="empty-state-icon">&#128203;</div>
+                        <p>No activity yet. Run a scan to process F1 episodes.</p>
+                    </div>
                 </div>
             </div>
         </div>
