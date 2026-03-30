@@ -12,8 +12,17 @@ async function api(endpoint, method = 'GET', data = null) {
     if (data) {
         options.body = JSON.stringify(data);
     }
-    const response = await fetch(`/api${endpoint}`, options);
-    return response.json();
+    try {
+        const response = await fetch(`/api${endpoint}`, options);
+        if (!response.ok) {
+            const text = await response.text();
+            throw new Error(text || `HTTP ${response.status}`);
+        }
+        return await response.json();
+    } catch (error) {
+        console.error(`API ${method} ${endpoint} failed:`, error);
+        throw error;
+    }
 }
 
 // Toast notifications
@@ -582,8 +591,12 @@ async function saveF1Config() {
         return;
     }
 
-    await api('/f1/config', 'POST', data);
-    showToast('F1 configuration saved');
+    try {
+        await api('/f1/config', 'POST', data);
+        showToast('F1 configuration saved');
+    } catch (error) {
+        showToast(`Failed to save F1 config: ${error.message}`, 'error');
+    }
 }
 
 async function loadF1Episodes() {
@@ -662,29 +675,37 @@ async function loadF1Activity() {
 }
 
 async function f1Scan() {
-    showToast('Starting F1 scan...');
-    const result = await api('/f1/scan', 'POST');
+    try {
+        showToast('Starting F1 scan...');
+        const result = await api('/f1/scan', 'POST');
 
-    if (result.status === 'completed') {
-        showToast(`F1 scan complete: ${result.moved} moved, ${result.unmatched} unmatched`);
-    } else {
-        showToast(`F1 scan ${result.status}: ${result.reason || ''}`, 'error');
+        if (result.status === 'completed') {
+            showToast(`F1 scan complete: ${result.moved} moved, ${result.unmatched} unmatched`);
+        } else {
+            showToast(`F1 scan ${result.status}: ${result.reason || ''}`, 'error');
+        }
+
+        loadF1Activity();
+    } catch (error) {
+        showToast(`F1 scan failed: ${error.message}`, 'error');
     }
-
-    loadF1Activity();
 }
 
 async function f1RefreshCache() {
     const season = document.getElementById('f1-season-select').value || new Date().getFullYear();
     showToast(`Refreshing TheTVDB cache for season ${season}...`);
 
-    const result = await api(`/f1/refresh-cache?season=${season}`, 'POST');
+    try {
+        const result = await api(`/f1/refresh-cache?season=${season}`, 'POST');
 
-    if (result.status === 'ok') {
-        showToast(`Cached ${result.episodes_cached} episodes for season ${result.season}`);
-        loadF1Episodes();
-    } else {
-        showToast(`Cache refresh failed: ${result.reason}`, 'error');
+        if (result.status === 'ok') {
+            showToast(`Cached ${result.episodes_cached} episodes for season ${result.season}`);
+            loadF1Episodes();
+        } else {
+            showToast(`Cache refresh failed: ${result.reason}`, 'error');
+        }
+    } catch (error) {
+        showToast(`Cache refresh failed: ${error.message}`, 'error');
     }
 }
 

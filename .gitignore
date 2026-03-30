@@ -12,3 +12,5 @@ config/
 nas-sync-key
 nas-sync-key.pub
 .DS_Store
+.claude/
+docs/
