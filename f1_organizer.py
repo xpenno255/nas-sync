@@ -23,14 +23,9 @@ TVDB_F1_SERIES_ID = 387219
 # Video file extensions to process
 VIDEO_EXTENSIONS = {'.mkv', '.mp4', '.avi', '.ts'}
 
-# F1 filename pattern — matches filenames containing Formula 1 / F1 indicators
-F1_PATTERN = re.compile(
-    r'(?:formula[.\s_-]*1|f1)[.\s_-]*'
-    r'(\d{4})[.\s_-]*'               # year/season
-    r'(?:r(?:ound)?[.\s_-]*(\d{1,2})[.\s_-]*)?'  # optional round number
-    r'(.+?)[.\s_-]*'                  # GP name (greedy but will be trimmed)
-    r'(race|qualifying|sprint[.\s_-]*(?:qualifying|shootout)?)'  # session type
-    r'[.\s_-]*(.*)$',                 # remainder (quality, codec, etc.)
+# Quality markers signal the end of meaningful content in F1 filenames
+QUALITY_MARKERS = re.compile(
+    r'[.\s_-](?:720p|1080[pi]|2160p|4K|HDTV|WEB[-.]?DL|WEB|SKY|F1TV)',
     re.IGNORECASE
 )
 
@@ -125,34 +120,107 @@ def parse_f1_filename(filename: str) -> Optional[dict]:
     if ext not in VIDEO_EXTENSIONS:
         return None
 
-    match = F1_PATTERN.search(stem)
-    if not match:
+    # Check if this is an F1 file
+    f1_prefix = re.match(
+        r'(?:formula[.\s_-]*1|f1)[.\s_-]*',
+        stem, re.IGNORECASE
+    )
+    if not f1_prefix:
         return None
 
-    season = int(match.group(1))
-    round_num = int(match.group(2)) if match.group(2) else None
-    gp_name_raw = match.group(3)
-    session_raw = match.group(4)
+    remainder = stem[f1_prefix.end():]
 
-    # Clean GP name: replace dots/underscores/dashes with spaces, strip
-    gp_name = re.sub(r'[._-]+', ' ', gp_name_raw).strip()
-    # Normalize to title case
-    gp_name = gp_name.title()
+    # Try to extract season/episode info
+    season = None
+    round_num = None
+    episode_num = None
 
-    # Normalize session type
-    session_lower = session_raw.lower().replace('.', ' ').replace('_', ' ').replace('-', ' ').strip()
-    if 'sprint' in session_lower and ('qualifying' in session_lower or 'shootout' in session_lower):
-        session = "Sprint Qualifying"
-    elif 'sprint' in session_lower:
-        session = "Sprint"
-    elif 'qualifying' in session_lower:
-        session = "Qualifying"
+    # Format: S2025E105
+    sxe_match = re.match(r'S(\d{4})E(\d+)[.\s_-]*(.*)', remainder, re.IGNORECASE)
+    if sxe_match:
+        season = int(sxe_match.group(1))
+        episode_num = int(sxe_match.group(2))
+        remainder = sxe_match.group(3)
     else:
-        session = "Race"
+        # Format: 2025.Round20.xxx or just 2025.xxx
+        year_match = re.match(r'(\d{4})[.\s_-]*(.*)', remainder)
+        if year_match:
+            season = int(year_match.group(1))
+            remainder = year_match.group(2)
+
+            # Check for Round number
+            round_match = re.match(r'[Rr](?:ound)?[.\s_-]*(\d{1,2})[.\s_-]*(.*)', remainder)
+            if round_match:
+                round_num = int(round_match.group(1))
+                remainder = round_match.group(2)
+
+    if not season:
+        return None
+
+    # Split off quality/technical info
+    quality_split = QUALITY_MARKERS.search(remainder)
+    if quality_split:
+        content = remainder[:quality_split.start()]
+    else:
+        content = remainder
+
+    # Clean content: replace dots/underscores/dashes with spaces
+    content = re.sub(r'[._-]+', ' ', content).strip()
+
+    if not content:
+        return None
+
+    # Extract GP name and session type from content
+    # Known session keywords (order matters - check longer phrases first)
+    SESSION_PATTERNS = [
+        (r'\bTeds\s+Sprint\s+Race\s+Notebook\b', 'Teds Sprint Race Notebook'),
+        (r'\bTeds\s+Qualifying\s+Notebook\b', 'Teds Qualifying Notebook'),
+        (r'\bTeds\s+Notebook\b', 'Teds Notebook'),
+        (r'\bTeam\s+Principals?\s+Press\s+Conference\b', 'Team Principals Press Conference'),
+        (r'\bDrivers?\s+Press\s+Conference\b', 'Drivers Press Conference'),
+        (r'\bPress\s+Conference\b', 'Press Conference'),
+        (r'\bSprint\s+(?:Qualifying|Shootout)\b', 'Sprint Qualifying'),
+        (r'\bSprint\s+Race\b', 'Sprint Race'),
+        (r'\bSprint\b', 'Sprint'),
+        (r'\bQualifying\b', 'Qualifying'),
+        (r'\bPractice\s+(?:One|1)\b', 'Practice 1'),
+        (r'\bPractice\s+(?:Two|2)\b', 'Practice 2'),
+        (r'\bPractice\s+(?:Three|3)\b', 'Practice 3'),
+        (r'\bFree\s+Practice\s+(?:One|1)\b', 'Practice 1'),
+        (r'\bFree\s+Practice\s+(?:Two|2)\b', 'Practice 2'),
+        (r'\bFree\s+Practice\s+(?:Three|3)\b', 'Practice 3'),
+        (r'\bRace\b', 'Race'),
+        (r'\bPaddock\s+Uncut\b', 'Paddock Uncut'),
+        (r'\bThe\s+F1\s+Show\b', 'The F1 Show'),
+        (r'\bUNCUT\b', 'Race'),
+    ]
+
+    session = None
+    gp_name = content
+
+    for pattern, session_name in SESSION_PATTERNS:
+        match = re.search(pattern, content, re.IGNORECASE)
+        if match:
+            session = session_name
+            # GP name is everything before the session match
+            gp_name = content[:match.start()].strip()
+            break
+
+    # If no session found, default to Race
+    if not session:
+        session = 'Race'
+
+    # If GP name is empty, return None
+    if not gp_name:
+        return None
+
+    # Normalize GP name to title case
+    gp_name = gp_name.title()
 
     return {
         "season": season,
         "round": round_num,
+        "episode_num": episode_num,
         "gp_name": gp_name,
         "session": session,
         "extension": ext
@@ -161,6 +229,12 @@ def parse_f1_filename(filename: str) -> Optional[dict]:
 
 def match_episode(parsed: dict, episodes: list) -> Optional[dict]:
     """Match parsed file metadata against cached TheTVDB episodes using fuzzy matching."""
+    # Direct match by episode number (SxxExx format)
+    if parsed.get("episode_num"):
+        for ep in episodes:
+            if ep["episode_number"] == parsed["episode_num"]:
+                return ep
+
     gp_name = parsed["gp_name"].lower()
     session = parsed["session"].lower()
 
