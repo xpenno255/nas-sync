@@ -219,7 +219,7 @@ async def scan_and_organize() -> dict:
 
     try:
         # Find all video files in watch folder
-        files = [f for f in watch_folder.iterdir() if f.is_file() and f.suffix.lower() in VIDEO_EXTENSIONS]
+        files = [f for f in watch_folder.rglob('*') if f.is_file() and f.suffix.lower() in VIDEO_EXTENSIONS]
 
         for file_path in files:
             parsed = parse_f1_filename(file_path.name)
