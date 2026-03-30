@@ -29,6 +29,39 @@ QUALITY_MARKERS = re.compile(
     re.IGNORECASE
 )
 
+# GP name adjective/keyword to TheTVDB location mapping
+GP_NAME_MAP = {
+    "australian": "australia",
+    "chinese": "china",
+    "japanese": "japan",
+    "miami": "miami",
+    "canadian": "canada",
+    "monaco": "monaco",
+    "spanish": "spain",
+    "austrian": "austria",
+    "british": "great britain",
+    "belgian": "belgium",
+    "hungarian": "hungary",
+    "dutch": "netherlands",
+    "italian": "italy",
+    "azerbaijan": "azerbaijan",
+    "singapore": "singapore",
+    "american": "united states",
+    "united states": "united states",
+    "mexican": "mexico",
+    "brazilian": "brazil",
+    "las vegas": "las vegas",
+    "qatar": "qatar",
+    "abu dhabi": "abu dhabi",
+    "bahrain": "bahrain",
+    "saudi arabian": "saudi arabia",
+    "emilia romagna": "emilia romagna",
+    "barcelona": "barcelona-catalunya",
+    "catalan": "barcelona-catalunya",
+    "portugal": "portugal",
+    "portuguese": "portugal",
+}
+
 # Global state
 scan_in_progress = False
 
@@ -227,43 +260,79 @@ def parse_f1_filename(filename: str) -> Optional[dict]:
     }
 
 
+def _normalize_gp_to_location(gp_name: str) -> str:
+    """Convert a GP name like 'Japanese Grand Prix' to a TheTVDB location like 'japan'."""
+    # Remove common suffixes
+    clean = re.sub(r'\s*(grand\s+prix|gp)\s*$', '', gp_name, flags=re.IGNORECASE).strip().lower()
+
+    # Look up in mapping
+    if clean in GP_NAME_MAP:
+        return GP_NAME_MAP[clean]
+
+    # Try each word individually (handles cases like "Mexico City Grand Prix" -> "mexico")
+    for word in clean.split():
+        if word in GP_NAME_MAP:
+            return GP_NAME_MAP[word]
+
+    # Fallback: return cleaned name as-is (might still match via fuzzy)
+    return clean
+
+
+def _parse_tvdb_episode(episode_name: str) -> tuple:
+    """Parse TheTVDB episode name like 'Japan (Race)' into (location, session)."""
+    match = re.match(r'^(.+?)\s*\((.+?)\)\s*$', episode_name)
+    if match:
+        return match.group(1).strip().lower(), match.group(2).strip().lower()
+    return episode_name.strip().lower(), None
+
+
+def _normalize_session_for_tvdb(session: str) -> str:
+    """Normalize our parsed session to match TheTVDB session format."""
+    s = session.lower()
+    if s == "sprint race":
+        return "sprint race"
+    if s == "sprint qualifying":
+        return "sprint qualifying"
+    if s == "sprint":
+        return "sprint race"  # "Sprint" in filename usually means Sprint Race
+    return s
+
+
 def match_episode(parsed: dict, episodes: list) -> Optional[dict]:
-    """Match parsed file metadata against cached TheTVDB episodes using fuzzy matching."""
+    """Match parsed file metadata against cached TheTVDB episodes."""
     # Direct match by episode number (SxxExx format)
     if parsed.get("episode_num"):
         for ep in episodes:
             if ep["episode_number"] == parsed["episode_num"]:
                 return ep
 
-    gp_name = parsed["gp_name"].lower()
-    session = parsed["session"].lower()
+    location = _normalize_gp_to_location(parsed["gp_name"])
+    session = _normalize_session_for_tvdb(parsed["session"])
 
+    # First pass: exact location and session match
+    for ep in episodes:
+        tvdb_location, tvdb_session = _parse_tvdb_episode(ep["episode_name"])
+        if tvdb_location == location and tvdb_session == session:
+            return ep
+
+    # Second pass: fuzzy location match with exact session
     best_match = None
     best_score = 0.0
-
     for ep in episodes:
-        ep_name = ep["episode_name"].lower()
-
-        # Check if session type appears in episode name
-        if session not in ep_name and session.replace(" ", "") not in ep_name.replace(" ", ""):
+        tvdb_location, tvdb_session = _parse_tvdb_episode(ep["episode_name"])
+        if tvdb_session != session:
             continue
 
-        # Score GP name similarity against episode name
-        score = SequenceMatcher(None, gp_name, ep_name).ratio()
-
-        # Bonus if GP name words appear in episode name
-        gp_words = gp_name.split()
-        matching_words = sum(1 for w in gp_words if w in ep_name)
-        if gp_words:
-            word_score = matching_words / len(gp_words)
-            score = (score + word_score) / 2
+        score = SequenceMatcher(None, location, tvdb_location).ratio()
+        # Boost score if one location string contains the other
+        if location in tvdb_location or tvdb_location in location:
+            score = max(score, 0.8)
 
         if score > best_score:
             best_score = score
             best_match = ep
 
-    # Require a minimum match confidence
-    if best_match and best_score >= 0.4:
+    if best_match and best_score >= 0.6:
         return best_match
 
     return None
@@ -289,7 +358,6 @@ async def scan_and_organize() -> dict:
 
     scan_in_progress = True
     results = {"status": "completed", "processed": 0, "moved": 0, "unmatched": 0, "errors": 0}
-    cache_refreshed_seasons = set()
 
     try:
         # Find all video files in watch folder
@@ -303,35 +371,21 @@ async def scan_and_organize() -> dict:
             results["processed"] += 1
             season = parsed["season"]
 
-            # Ensure we have cached episodes for this season
-            if not await has_f1_season_cache(season):
-                if api_key and season not in cache_refreshed_seasons:
-                    await refresh_episode_cache(api_key, season)
-                    cache_refreshed_seasons.add(season)
-
             episodes = await get_f1_episodes(season)
 
             if not episodes:
-                # No cache and no API key — can't match
+                # No cache — user needs to refresh manually via the Refresh TheTVDB button
                 await create_f1_activity_log(
                     original_filename=file_path.name,
                     season=season,
                     status="unmatched",
-                    message="No episode data available (check TheTVDB API key)"
+                    message=f"No episode cache for season {season} — use the Refresh TheTVDB button to populate it"
                 )
                 results["unmatched"] += 1
                 continue
 
             # Match against cached episodes
             matched = match_episode(parsed, episodes)
-
-            if not matched:
-                # Try refreshing cache once per season if we haven't already
-                if api_key and season not in cache_refreshed_seasons:
-                    await refresh_episode_cache(api_key, season)
-                    cache_refreshed_seasons.add(season)
-                    episodes = await get_f1_episodes(season)
-                    matched = match_episode(parsed, episodes)
 
             if not matched:
                 await create_f1_activity_log(
