@@ -391,15 +391,26 @@ async def create_f1_activity_log(original_filename: str, new_filename: str = Non
             INSERT INTO f1_activity_log (original_filename, new_filename, season, episode_number, status, message)
             VALUES (?, ?, ?, ?, ?, ?)
         """, (original_filename, new_filename, season, episode_number, status, message))
+        await db.execute("""
+            DELETE FROM f1_activity_log WHERE id NOT IN (SELECT id FROM f1_activity_log ORDER BY processed_at DESC LIMIT 200)
+        """)
         await db.commit()
 
 
-async def get_f1_activity_log(limit: int = 50):
+async def get_f1_activity_log(limit: int = 50, status: str = None):
     async with aiosqlite.connect(DATABASE_PATH) as db:
         db.row_factory = aiosqlite.Row
-        async with db.execute(
-            "SELECT * FROM f1_activity_log ORDER BY processed_at DESC LIMIT ?",
-            (limit,)
-        ) as cursor:
-            rows = await cursor.fetchall()
-            return [dict(row) for row in rows]
+        if status:
+            async with db.execute(
+                "SELECT * FROM f1_activity_log WHERE status = ? ORDER BY processed_at DESC LIMIT ?",
+                (status, limit)
+            ) as cursor:
+                rows = await cursor.fetchall()
+                return [dict(row) for row in rows]
+        else:
+            async with db.execute(
+                "SELECT * FROM f1_activity_log ORDER BY processed_at DESC LIMIT ?",
+                (limit,)
+            ) as cursor:
+                rows = await cursor.fetchall()
+                return [dict(row) for row in rows]

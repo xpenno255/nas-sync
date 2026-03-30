@@ -338,8 +338,8 @@ async def api_get_f1_episodes(season: int = None):
 
 
 @app.get("/api/f1/activity")
-async def api_get_f1_activity(limit: int = 50):
-    activity = await get_f1_activity_log(limit)
+async def api_get_f1_activity(limit: int = 50, status: str = None):
+    activity = await get_f1_activity_log(limit, status)
     return {"activity": activity}
 
 

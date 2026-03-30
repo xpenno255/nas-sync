@@ -637,7 +637,9 @@ async function loadF1Episodes() {
 }
 
 async function loadF1Activity() {
-    const data = await api('/f1/activity');
+    const filter = document.getElementById('f1-activity-filter').value;
+    const params = filter ? `?status=${filter}` : '';
+    const data = await api(`/f1/activity${params}`);
     const container = document.getElementById('f1-activity-list');
 
     if (!data.activity || data.activity.length === 0) {
