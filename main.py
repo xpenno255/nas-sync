@@ -1,4 +1,5 @@
 import logging
+import os
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
@@ -97,10 +98,13 @@ class F1ConfigRequest(BaseModel):
     scan_interval_minutes: int = 15
 
 
+BUILD_VERSION = os.environ.get("BUILD_VERSION", "dev")
+
+
 # Web UI route
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
+    return templates.TemplateResponse("index.html", {"request": request, "version": BUILD_VERSION})
 
 
 # NAS Config API

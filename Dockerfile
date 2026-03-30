@@ -17,6 +17,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY . .
 
+# Build version arg (pass --build-arg BUILD_VERSION=$(git describe --tags --always))
+ARG BUILD_VERSION=dev
+ENV BUILD_VERSION=${BUILD_VERSION}
+
 # Create config directory
 RUN mkdir -p /config
 
