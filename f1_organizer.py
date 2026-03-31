@@ -400,9 +400,9 @@ async def scan_and_organize() -> dict:
             # Build destination path
             ep_num = matched["episode_number"]
             ep_name = matched["episode_name"]
-            new_filename = f"Formula 1 - S{season}E{ep_num:02d} - {ep_name}{parsed['extension']}"
+            new_filename = f"F1 - S{season}E{ep_num:02d} - {ep_name}{parsed['extension']}"
 
-            season_folder = output_base / "Formula 1" / f"Season {season}"
+            season_folder = output_base / "F1" / f"Season {season}"
             dest_path = season_folder / new_filename
 
             # Check for duplicates
