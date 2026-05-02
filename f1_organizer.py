@@ -153,9 +153,9 @@ def parse_f1_filename(filename: str) -> Optional[dict]:
     if ext not in VIDEO_EXTENSIONS:
         return None
 
-    # Check if this is an F1 file
+    # Check if this is an F1 file (allow optional leading numeric prefix e.g. "05.")
     f1_prefix = re.match(
-        r'(?:formula[.\s_-]*1|f1)[.\s_-]*',
+        r'(?:\d+[.\s_-]+)?(?:formula[.\s_-]*1|f1)[.\s_-]*',
         stem, re.IGNORECASE
     )
     if not f1_prefix:
@@ -222,6 +222,11 @@ def parse_f1_filename(filename: str) -> Optional[dict]:
         (r'\bFree\s+Practice\s+(?:One|1)\b', 'Practice 1'),
         (r'\bFree\s+Practice\s+(?:Two|2)\b', 'Practice 2'),
         (r'\bFree\s+Practice\s+(?:Three|3)\b', 'Practice 3'),
+        (r'\bFP1\b', 'Practice 1'),
+        (r'\bFP2\b', 'Practice 2'),
+        (r'\bFP3\b', 'Practice 3'),
+        (r'\bFree\s+Practice\b', 'Free Practice'),
+        (r'\bWeekend\s+Warm[\s-]+Up\b', 'Weekend Warm-Up'),
         (r'\bRace\b', 'Race'),
         (r'\bPaddock\s+Uncut\b', 'Paddock Uncut'),
         (r'\bThe\s+F1\s+Show\b', 'The F1 Show'),
@@ -320,7 +325,7 @@ def match_episode(parsed: dict, episodes: list) -> Optional[dict]:
     best_score = 0.0
     for ep in episodes:
         tvdb_location, tvdb_session = _parse_tvdb_episode(ep["episode_name"])
-        if tvdb_session != session:
+        if tvdb_session != session and not (tvdb_session and tvdb_session.startswith(session)):
             continue
 
         score = SequenceMatcher(None, location, tvdb_location).ratio()
