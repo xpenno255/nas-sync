@@ -8,64 +8,109 @@
 </head>
 <body>
     <header>
-        <div class="container">
-            <h1><span class="icon">🔄</span> NAS Sync</h1>
-            <div class="status-indicator">
-                <div id="next-sync-time" style="color: var(--text-secondary); font-size: 0.9rem;">Loading...</div>
-                <div style="display: flex; align-items: center; gap: 8px;">
-                    <div id="nas-status-dot" class="status-dot"></div>
-                    <span id="nas-status-text">Checking...</span>
-                </div>
+        <div class="container header-inner">
+            <div class="wordmark">
+                <svg class="mark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M4 8h13l-3-3"/>
+                    <path d="M20 16H7l3 3"/>
+                </svg>
+                <span class="wordmark-text">NAS<span class="wordmark-sync">SYNC</span></span>
+            </div>
+            <div class="conn">
+                <span id="nas-status-dot" class="led"></span>
+                <span id="nas-status-text" class="conn-text">Checking</span>
             </div>
         </div>
     </header>
 
     <div class="container">
-        <nav class="tabs">
+        <nav class="tabs" aria-label="Sections">
             <button class="tab active" data-tab="dashboard">Dashboard</button>
             <button class="tab" data-tab="mappings">Folder Mappings</button>
             <button class="tab" data-tab="f1">F1 Organizer</button>
+            <button class="tab" data-tab="cleanup">Downloads Cleanup</button>
             <button class="tab" data-tab="logs">Sync Logs</button>
             <button class="tab" data-tab="settings">Settings</button>
         </nav>
 
         <!-- Dashboard Tab -->
         <div id="tab-dashboard" class="tab-content active">
+            <section class="rail" aria-label="System status">
+                <div class="rail-tile">
+                    <span class="eyebrow">NAS</span>
+                    <div class="rail-body">
+                        <span id="rail-nas-led" class="led"></span>
+                        <span id="rail-nas-val" class="rail-val">—</span>
+                    </div>
+                </div>
+                <div class="rail-tile">
+                    <span class="eyebrow">Next sync</span>
+                    <div class="rail-body">
+                        <span id="rail-sync-led" class="led"></span>
+                        <span id="rail-sync-val" class="rail-val">—</span>
+                    </div>
+                </div>
+                <div class="rail-tile">
+                    <span class="eyebrow">Next F1 scan</span>
+                    <div class="rail-body">
+                        <span id="rail-f1-led" class="led"></span>
+                        <span id="rail-f1-val" class="rail-val">—</span>
+                    </div>
+                </div>
+                <div class="rail-tile">
+                    <span class="eyebrow">Next cleanup</span>
+                    <div class="rail-body">
+                        <span id="rail-cl-led" class="led"></span>
+                        <span id="rail-cl-val" class="rail-val">—</span>
+                    </div>
+                </div>
+            </section>
+
             <div class="stats-grid">
                 <div class="stat-card">
-                    <div class="stat-value" id="stat-mappings">-</div>
-                    <div class="stat-label">Total Mappings</div>
+                    <span class="eyebrow">Mappings</span>
+                    <div class="stat-value" id="stat-mappings">—</div>
+                    <div class="stat-label">Configured</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-value" id="stat-enabled">-</div>
+                    <span class="eyebrow">Active</span>
+                    <div class="stat-value" id="stat-enabled">—</div>
                     <div class="stat-label">Enabled</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-value" id="stat-success">-</div>
-                    <div class="stat-label">Successful Syncs</div>
+                    <span class="eyebrow">Success</span>
+                    <div class="stat-value" id="stat-success">—</div>
+                    <div class="stat-label">Recent syncs</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-value" id="stat-errors">-</div>
-                    <div class="stat-label">Errors</div>
+                    <span class="eyebrow">Faults</span>
+                    <div class="stat-value stat-value-alert" id="stat-errors">—</div>
+                    <div class="stat-label">Recent errors</div>
                 </div>
             </div>
 
             <div class="card">
                 <div class="card-header">
-                    <h3 class="card-title">Quick Actions</h3>
+                    <div class="card-heading">
+                        <span class="eyebrow">Controls</span>
+                        <h3 class="card-title">Quick actions</h3>
+                    </div>
                 </div>
                 <div class="btn-group">
-                    <button class="btn btn-primary" onclick="syncAll()">▶ Sync All Now</button>
-                    <button class="btn btn-secondary" onclick="updateNasStatus()">🔄 Refresh Status</button>
+                    <button class="btn btn-primary" onclick="syncAll()"><svg class="ic" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>Sync all now</button>
+                    <button class="btn btn-secondary" onclick="updateNasStatus()"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6"/></svg>Refresh status</button>
                 </div>
             </div>
 
             <div class="card">
                 <div class="card-header">
-                    <h3 class="card-title">Recent Activity</h3>
+                    <div class="card-heading">
+                        <span class="eyebrow">Log</span>
+                        <h3 class="card-title">Recent activity</h3>
+                    </div>
                 </div>
                 <div id="recent-logs">
-                    <div class="empty-state">Loading...</div>
+                    <div class="empty-state">Loading…</div>
                 </div>
             </div>
         </div>
@@ -74,11 +119,14 @@
         <div id="tab-mappings" class="tab-content">
             <div class="card">
                 <div class="card-header">
-                    <h3 class="card-title">Folder Mappings</h3>
-                    <button class="btn btn-primary" onclick="openAddMappingModal()">+ Add Mapping</button>
+                    <div class="card-heading">
+                        <span class="eyebrow">Transfers</span>
+                        <h3 class="card-title">Folder mappings</h3>
+                    </div>
+                    <button class="btn btn-primary btn-sm" onclick="openAddMappingModal()"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>Add mapping</button>
                 </div>
                 <div id="mappings-list" class="table-container">
-                    <div class="empty-state">Loading...</div>
+                    <div class="empty-state">Loading…</div>
                 </div>
             </div>
         </div>
@@ -87,75 +135,198 @@
         <div id="tab-f1" class="tab-content">
             <div class="card">
                 <div class="card-header">
-                    <h3 class="card-title">F1 Organizer Configuration</h3>
-                    <div style="display: flex; gap: 8px;">
-                        <button class="btn btn-success" onclick="f1Scan()">Scan Now</button>
-                        <button class="btn btn-secondary" onclick="f1RefreshCache()">Refresh TheTVDB</button>
+                    <div class="card-heading">
+                        <span class="eyebrow">Organizer</span>
+                        <h3 class="card-title">F1 configuration</h3>
+                    </div>
+                    <div class="btn-row">
+                        <button class="btn btn-success btn-sm" onclick="f1Scan()"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>Scan now</button>
+                        <button class="btn btn-secondary btn-sm" onclick="f1RefreshCache()"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6"/></svg>Refresh TheTVDB</button>
                     </div>
                 </div>
                 <div class="form-row">
                     <div class="form-group">
-                        <label>Watch Folder</label>
+                        <label>Watch folder</label>
                         <input type="text" id="f1-watch-folder" placeholder="/downloads/f1">
                     </div>
                     <div class="form-group">
-                        <label>Output Folder</label>
+                        <label>Output folder</label>
                         <input type="text" id="f1-output-folder" placeholder="/media">
                     </div>
                 </div>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label>TheTVDB API Key</label>
-                        <input type="password" id="f1-tvdb-key" placeholder="Your TheTVDB API key">
-                    </div>
-                    <div class="form-group">
-                        <label>Scan Interval (minutes)</label>
-                        <input type="number" id="f1-scan-interval" value="15" min="1">
-                    </div>
-                </div>
                 <div class="form-group">
-                    <label class="form-checkbox">
-                        <input type="checkbox" id="f1-enabled">
-                        <span>Enable scheduled scanning</span>
-                    </label>
+                    <label>TheTVDB API key</label>
+                    <input type="password" id="f1-tvdb-key" placeholder="Your TheTVDB API key">
                 </div>
-                <button class="btn btn-primary" onclick="saveF1Config()">Save Configuration</button>
+
+                <div class="fieldset">
+                    <div class="fieldset-head">
+                        <span class="eyebrow">Schedule</span>
+                        <label class="switch-inline">
+                            <span class="toggle"><input type="checkbox" id="f1-enabled"><span class="toggle-slider"></span></span>
+                            <span>Enable scheduled scanning</span>
+                        </label>
+                    </div>
+                    <div class="sched-grid">
+                        <div class="form-group">
+                            <label>Frequency</label>
+                            <select id="f1-mode">
+                                <option value="interval">Every N minutes</option>
+                                <option value="hourly">Hourly</option>
+                                <option value="daily">Daily at</option>
+                            </select>
+                        </div>
+                        <div class="form-group" id="f1-interval-wrap">
+                            <label>Interval (minutes)</label>
+                            <input type="number" id="f1-scan-interval" value="15" min="1">
+                        </div>
+                        <div class="form-group is-hidden" id="f1-time-wrap">
+                            <label>Time</label>
+                            <input type="time" id="f1-daily-time" value="03:00">
+                        </div>
+                    </div>
+                    <div class="next-run" id="f1-next-run"></div>
+                </div>
+
+                <button class="btn btn-primary" onclick="saveF1Config()">Save configuration</button>
             </div>
 
             <div class="card">
                 <div class="card-header">
-                    <h3 class="card-title">Cached Episodes</h3>
-                    <div style="display: flex; align-items: center; gap: 12px;">
-                        <label>Season:</label>
-                        <input type="number" id="f1-season-select" value="" style="width: 80px;" onchange="loadF1Episodes()">
+                    <div class="card-heading">
+                        <span class="eyebrow">Cache</span>
+                        <h3 class="card-title">Cached episodes</h3>
+                    </div>
+                    <div class="inline-field">
+                        <label for="f1-season-select">Season</label>
+                        <input type="number" id="f1-season-select" class="input-sm" value="" onchange="loadF1Episodes()">
                     </div>
                 </div>
                 <div id="f1-episodes-list">
                     <div class="empty-state">
-                        <div class="empty-state-icon">&#127947;</div>
-                        <p>No cached episodes. Configure your TheTVDB API key and click Refresh.</p>
+                        <p>No cached episodes yet. Add your TheTVDB API key and refresh.</p>
                     </div>
                 </div>
             </div>
 
             <div class="card">
                 <div class="card-header">
-                    <h3 class="card-title">Activity Log</h3>
-                    <div style="display: flex; align-items: center; gap: 8px;">
-                        <select id="f1-activity-filter" onchange="loadF1Activity()" style="padding: 6px 12px; border-radius: 4px; border: 1px solid var(--border); background: var(--bg-secondary); color: var(--text-primary); font-size: 0.85rem;">
-                            <option value="">All Activity</option>
+                    <div class="card-heading">
+                        <span class="eyebrow">Log</span>
+                        <h3 class="card-title">Activity</h3>
+                    </div>
+                    <div class="btn-row">
+                        <select id="f1-activity-filter" class="select-sm" onchange="loadF1Activity()">
+                            <option value="">All activity</option>
                             <option value="moved">Moved</option>
                             <option value="unmatched">Unmatched</option>
                             <option value="duplicate">Duplicate</option>
                             <option value="error">Errors</option>
                         </select>
-                        <button class="btn btn-secondary" onclick="loadF1Activity()">🔄 Refresh</button>
+                        <button class="btn btn-secondary btn-icon" onclick="loadF1Activity()" title="Refresh"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6"/></svg></button>
                     </div>
                 </div>
                 <div id="f1-activity-list">
                     <div class="empty-state">
-                        <div class="empty-state-icon">&#128203;</div>
-                        <p>No activity yet. Run a scan to process F1 episodes.</p>
+                        <p>No activity yet. Run a scan to organize F1 episodes.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Downloads Cleanup Tab -->
+        <div id="tab-cleanup" class="tab-content">
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-heading">
+                        <span class="eyebrow">Recovery</span>
+                        <h3 class="card-title">Downloads cleanup</h3>
+                    </div>
+                </div>
+                <p class="card-lede">Finds completed downloads with obfuscated names that Sonarr or Radarr couldn't import, and renames them to their job folder so the *arr apps pick them up.</p>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Watch folder</label>
+                        <input type="text" id="cl-watch-folder" placeholder="/downloads/completed">
+                    </div>
+                    <div class="form-group">
+                        <label>Minimum file age (minutes)</label>
+                        <input type="number" id="cl-min-age" value="10" min="0">
+                    </div>
+                </div>
+                <label class="switch-inline">
+                    <span class="toggle"><input type="checkbox" id="cl-remove-junk"><span class="toggle-slider"></span></span>
+                    <span>Remove junk files (samples, .nfo, .txt)</span>
+                </label>
+
+                <div class="fieldset">
+                    <div class="fieldset-head">
+                        <span class="eyebrow">Schedule</span>
+                        <label class="switch-inline">
+                            <span class="toggle"><input type="checkbox" id="cl-enabled"><span class="toggle-slider"></span></span>
+                            <span>Enable scheduled cleanup</span>
+                        </label>
+                    </div>
+                    <div class="sched-grid">
+                        <div class="form-group">
+                            <label>Frequency</label>
+                            <select id="cl-mode">
+                                <option value="interval">Every N minutes</option>
+                                <option value="hourly">Hourly</option>
+                                <option value="daily">Daily at</option>
+                            </select>
+                        </div>
+                        <div class="form-group" id="cl-interval-wrap">
+                            <label>Interval (minutes)</label>
+                            <input type="number" id="cl-interval" value="30" min="1">
+                        </div>
+                        <div class="form-group is-hidden" id="cl-time-wrap">
+                            <label>Time</label>
+                            <input type="time" id="cl-daily-time" value="04:00">
+                        </div>
+                    </div>
+                    <div class="next-run" id="cl-next-run"></div>
+                </div>
+
+                <div class="btn-group">
+                    <button class="btn btn-primary" onclick="saveCleanupConfig()">Save configuration</button>
+                    <button class="btn btn-secondary" onclick="cleanupDryRun()"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>Dry run</button>
+                    <button class="btn btn-success" onclick="cleanupRun()"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 21 9-9"/><path d="M15 4l1.4 3.1L20 8.5l-3.6 1.4L15 13l-1.4-3.1L10 8.5l3.6-1.4Z"/></svg>Run cleanup</button>
+                </div>
+            </div>
+
+            <div class="card is-hidden" id="cl-results-card">
+                <div class="card-header">
+                    <div class="card-heading">
+                        <span class="eyebrow">Result</span>
+                        <h3 class="card-title">Scan output</h3>
+                    </div>
+                    <span id="cl-results-badge" class="tag"></span>
+                </div>
+                <div id="cl-results-summary" class="summary-strip"></div>
+                <div id="cl-results-body" class="table-container"></div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-heading">
+                        <span class="eyebrow">Log</span>
+                        <h3 class="card-title">Activity</h3>
+                    </div>
+                    <div class="btn-row">
+                        <select id="cl-activity-filter" class="select-sm" onchange="loadCleanupActivity()">
+                            <option value="">All activity</option>
+                            <option value="renamed">Renamed</option>
+                            <option value="junk_removed">Junk removed</option>
+                            <option value="skipped">Skipped</option>
+                            <option value="error">Errors</option>
+                        </select>
+                        <button class="btn btn-secondary btn-icon" onclick="loadCleanupActivity()" title="Refresh"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6"/></svg></button>
+                    </div>
+                </div>
+                <div id="cl-activity-list">
+                    <div class="empty-state">
+                        <p>No activity yet. Run a dry run to preview, then run cleanup.</p>
                     </div>
                 </div>
             </div>
@@ -165,11 +336,14 @@
         <div id="tab-logs" class="tab-content">
             <div class="card">
                 <div class="card-header">
-                    <h3 class="card-title">Sync Logs</h3>
-                    <button class="btn btn-secondary" onclick="loadLogs()">🔄 Refresh</button>
+                    <div class="card-heading">
+                        <span class="eyebrow">History</span>
+                        <h3 class="card-title">Sync logs</h3>
+                    </div>
+                    <button class="btn btn-secondary btn-icon" onclick="loadLogs()" title="Refresh"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6"/></svg></button>
                 </div>
                 <div id="logs-list" class="table-container">
-                    <div class="empty-state">Loading...</div>
+                    <div class="empty-state">Loading…</div>
                 </div>
             </div>
         </div>
@@ -179,7 +353,10 @@
             <!-- NAS Configuration -->
             <div class="card">
                 <div class="card-header">
-                    <h3 class="card-title">NAS Configuration</h3>
+                    <div class="card-heading">
+                        <span class="eyebrow">Connection</span>
+                        <h3 class="card-title">NAS configuration</h3>
+                    </div>
                 </div>
                 <form onsubmit="event.preventDefault(); saveNasConfig();">
                     <div class="form-row">
@@ -188,23 +365,23 @@
                             <input type="text" id="nas-hostname" placeholder="192.168.1.100">
                         </div>
                         <div class="form-group">
-                            <label>SSH User</label>
+                            <label>SSH user</label>
                             <input type="text" id="nas-user" placeholder="admin">
                         </div>
                     </div>
                     <div class="form-row">
                         <div class="form-group">
-                            <label>SSH Key Path</label>
+                            <label>SSH key path</label>
                             <input type="text" id="nas-key-path" value="/config/id_rsa">
                         </div>
                         <div class="form-group">
-                            <label>SSH Port</label>
+                            <label>SSH port</label>
                             <input type="number" id="nas-port" value="22">
                         </div>
                     </div>
                     <div class="btn-group">
-                        <button type="submit" class="btn btn-primary">Save Configuration</button>
-                        <button type="button" class="btn btn-secondary" onclick="testNasConnection()">Test Connection</button>
+                        <button type="submit" class="btn btn-primary">Save configuration</button>
+                        <button type="button" class="btn btn-secondary" onclick="testNasConnection()"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 2v6M15 2v6M6 8h12v3a6 6 0 0 1-12 0V8ZM12 20v2"/></svg>Test connection</button>
                     </div>
                 </form>
             </div>
@@ -212,50 +389,68 @@
             <!-- Scheduler Configuration -->
             <div class="card">
                 <div class="card-header">
-                    <h3 class="card-title">Scheduler</h3>
+                    <div class="card-heading">
+                        <span class="eyebrow">Automation</span>
+                        <h3 class="card-title">Sync scheduler</h3>
+                    </div>
                 </div>
                 <form onsubmit="event.preventDefault(); saveSchedulerConfig();">
-                    <div class="form-row">
+                    <label class="switch-inline">
+                        <span class="toggle"><input type="checkbox" id="scheduler-enabled"><span class="toggle-slider"></span></span>
+                        <span>Enable automatic sync</span>
+                    </label>
+                    <div class="sched-grid">
                         <div class="form-group">
-                            <label class="form-checkbox">
-                                <input type="checkbox" id="scheduler-enabled">
-                                <span>Enable automatic sync</span>
-                            </label>
+                            <label>Frequency</label>
+                            <select id="sched-mode">
+                                <option value="interval">Every N minutes</option>
+                                <option value="hourly">Hourly</option>
+                                <option value="daily">Daily at</option>
+                            </select>
                         </div>
-                        <div class="form-group">
+                        <div class="form-group" id="sched-interval-wrap">
                             <label>Interval (minutes)</label>
                             <input type="number" id="scheduler-interval" min="1" value="15">
                         </div>
+                        <div class="form-group is-hidden" id="sched-time-wrap">
+                            <label>Time</label>
+                            <input type="time" id="sched-daily-time" value="03:00">
+                        </div>
                     </div>
-                    <button type="submit" class="btn btn-primary">Save Scheduler Settings</button>
+                    <div class="next-run" id="sched-next-run"></div>
+                    <button type="submit" class="btn btn-primary">Save schedule</button>
                 </form>
             </div>
 
             <!-- Post-Sync Actions -->
             <div class="card">
                 <div class="card-header">
-                    <h3 class="card-title">Post-Sync Actions</h3>
-                    <button class="btn btn-primary btn-sm" onclick="openAddActionModal()">+ Add Action</button>
+                    <div class="card-heading">
+                        <span class="eyebrow">Hooks</span>
+                        <h3 class="card-title">Post-sync actions</h3>
+                    </div>
+                    <button class="btn btn-primary btn-sm" onclick="openAddActionModal()"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>Add action</button>
                 </div>
                 <div id="actions-list">
-                    <div class="empty-state">Loading...</div>
+                    <div class="empty-state">Loading…</div>
                 </div>
             </div>
 
             <!-- SSH Key Info -->
             <div class="card">
                 <div class="card-header">
-                    <h3 class="card-title">SSH Key Setup</h3>
+                    <div class="card-heading">
+                        <span class="eyebrow">Reference</span>
+                        <h3 class="card-title">SSH key setup</h3>
+                    </div>
                 </div>
-                <p style="color: var(--text-secondary); margin-bottom: 15px;">
-                    To enable passwordless SSH access to your NAS, you need to:
-                </p>
-                <ol style="color: var(--text-secondary); padding-left: 20px;">
-                    <li>Generate an SSH key pair (if you don't have one)</li>
-                    <li>Mount the private key to <code>/config/id_rsa</code> in the container</li>
-                    <li>Add the public key to your NAS's authorized_keys</li>
+                <p class="card-lede">To enable passwordless SSH access to your NAS:</p>
+                <ol class="steps">
+                    <li>Generate an SSH key pair (if you don't have one).</li>
+                    <li>Mount the private key to <code>/config/id_rsa</code> in the container.</li>
+                    <li>Add the public key to your NAS's authorized_keys.</li>
                 </ol>
-                <pre style="background: var(--bg-secondary); padding: 15px; border-radius: 6px; margin-top: 15px; overflow-x: auto;">
+                <pre class="code-block">
 # Generate key (on host):
 ssh-keygen -t ed25519 -f ./nas-sync-key -N ""
 
@@ -273,35 +468,31 @@ volumes:
     <div id="mapping-modal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
-                <h3 class="modal-title" id="mapping-modal-title">Add Folder Mapping</h3>
-                <button class="modal-close" onclick="closeModal('mapping-modal')">&times;</button>
+                <h3 class="modal-title" id="mapping-modal-title">Add folder mapping</h3>
+                <button class="modal-close" onclick="closeModal('mapping-modal')" aria-label="Close"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
             </div>
             <form id="mapping-form" onsubmit="event.preventDefault(); saveMapping();">
                 <input type="hidden" id="mapping-id">
                 <div class="form-group">
                     <label>Name</label>
-                    <input type="text" id="mapping-name" placeholder="e.g., Movies" required>
+                    <input type="text" id="mapping-name" placeholder="e.g. Movies" required>
                 </div>
                 <div class="form-group">
-                    <label>Source Path (Local)</label>
+                    <label>Source path (local)</label>
                     <input type="text" id="mapping-source" placeholder="/data/downloads/movies" required>
                 </div>
                 <div class="form-group">
-                    <label>Destination Path (NAS)</label>
+                    <label>Destination path (NAS)</label>
                     <input type="text" id="mapping-dest" placeholder="/volume1/media/movies" required>
                 </div>
-                <div class="form-group">
-                    <label class="form-checkbox">
-                        <input type="checkbox" id="mapping-enabled" checked>
-                        <span>Enabled</span>
-                    </label>
-                </div>
-                <div class="form-group">
-                    <label class="form-checkbox">
-                        <input type="checkbox" id="mapping-delete-source">
-                        <span>Delete source files after successful sync</span>
-                    </label>
-                </div>
+                <label class="switch-inline">
+                    <span class="toggle"><input type="checkbox" id="mapping-enabled" checked><span class="toggle-slider"></span></span>
+                    <span>Enabled</span>
+                </label>
+                <label class="switch-inline">
+                    <span class="toggle"><input type="checkbox" id="mapping-delete-source"><span class="toggle-slider"></span></span>
+                    <span>Delete source files after successful sync</span>
+                </label>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" onclick="closeModal('mapping-modal')">Cancel</button>
                     <button type="submit" class="btn btn-primary">Save</button>
@@ -314,25 +505,23 @@ volumes:
     <div id="action-modal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
-                <h3 class="modal-title">Add Post-Sync Action</h3>
-                <button class="modal-close" onclick="closeModal('action-modal')">&times;</button>
+                <h3 class="modal-title">Add post-sync action</h3>
+                <button class="modal-close" onclick="closeModal('action-modal')" aria-label="Close"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
             </div>
             <form id="action-form" onsubmit="event.preventDefault(); saveAction();">
                 <input type="hidden" id="action-id">
                 <div class="form-group">
                     <label>Name</label>
-                    <input type="text" id="action-name" placeholder="e.g., Refresh Plex" required>
+                    <input type="text" id="action-name" placeholder="e.g. Refresh Plex" required>
                 </div>
                 <div class="form-group">
-                    <label>Action Type</label>
+                    <label>Action type</label>
                     <select id="action-type" onchange="updateActionConfigFields()">
-                        <option value="plex_refresh">Plex Library Refresh</option>
-                        <option value="webhook">Generic Webhook</option>
+                        <option value="plex_refresh">Plex library refresh</option>
+                        <option value="webhook">Generic webhook</option>
                     </select>
                 </div>
-                <div id="action-config-fields">
-                    <!-- Dynamic fields based on action type -->
-                </div>
+                <div id="action-config-fields"></div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" onclick="closeModal('action-modal')">Cancel</button>
                     <button type="submit" class="btn btn-primary">Save</button>
@@ -346,8 +535,6 @@ volumes:
 
     <script src="/static/app.js?v={{ version }}"></script>
 
-    <footer id="app-version" style="text-align: center; padding: 16px 0 12px; font-size: 0.75rem; color: var(--text-secondary); opacity: 0.6;">
-        v{{ version }}
-    </footer>
+    <footer id="app-version">NAS Sync · v{{ version }}</footer>
 </body>
 </html>

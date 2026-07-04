@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from typing import Optional
 
 from database import (
+    DATABASE_PATH,
     init_db, get_nas_config, save_nas_config,
     get_folder_mappings, get_folder_mapping, create_folder_mapping,
     update_folder_mapping, delete_folder_mapping,
@@ -20,7 +21,8 @@ from database import (
     get_post_sync_actions, create_post_sync_action,
     update_post_sync_action, delete_post_sync_action,
     get_f1_config, save_f1_config, get_f1_episodes,
-    get_f1_activity_log, clear_f1_episode_cache
+    get_f1_activity_log, clear_f1_episode_cache,
+    get_cleanup_config, save_cleanup_config, get_cleanup_activity_log
 )
 from sync_engine import (
     check_nas_online, test_ssh_connection, run_sync_all,
@@ -28,9 +30,10 @@ from sync_engine import (
 )
 from scheduler import (
     start_scheduler, stop_scheduler, update_scheduler,
-    update_f1_scheduler, get_scheduler_status
+    update_f1_scheduler, update_cleanup_scheduler, get_scheduler_status
 )
 from f1_organizer import scan_and_organize, refresh_episode_cache, get_f1_scan_status
+from download_cleanup import run_cleanup, get_cleanup_status
 
 # Configure logging
 logging.basicConfig(
@@ -44,11 +47,12 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     # Startup
     logger.info("Starting NAS Sync application")
-    Path("/config").mkdir(parents=True, exist_ok=True)
+    DATABASE_PATH.parent.mkdir(parents=True, exist_ok=True)
     await init_db()
     start_scheduler()
     await update_scheduler()
     await update_f1_scheduler()
+    await update_cleanup_scheduler()
     yield
     # Shutdown
     stop_scheduler()
@@ -80,7 +84,9 @@ class FolderMappingRequest(BaseModel):
 
 class SchedulerConfigRequest(BaseModel):
     enabled: bool
-    interval_minutes: int
+    interval_minutes: int = 15
+    schedule_mode: str = "interval"  # interval | hourly | daily
+    daily_time: str = "03:00"
 
 
 class PostSyncActionRequest(BaseModel):
@@ -96,6 +102,18 @@ class F1ConfigRequest(BaseModel):
     tvdb_api_key: str = ""
     enabled: bool = False
     scan_interval_minutes: int = 15
+    schedule_mode: str = "interval"
+    daily_time: str = "03:00"
+
+
+class CleanupConfigRequest(BaseModel):
+    watch_folder: str
+    min_age_minutes: int = 60
+    remove_junk: bool = False
+    enabled: bool = False
+    schedule_mode: str = "hourly"
+    interval_minutes: int = 60
+    daily_time: str = "03:00"
 
 
 BUILD_VERSION = os.environ.get("BUILD_VERSION", "dev")
@@ -247,7 +265,9 @@ async def api_get_scheduler():
 async def api_save_scheduler(config: SchedulerConfigRequest):
     await save_scheduler_config(
         enabled=config.enabled,
-        interval_minutes=config.interval_minutes
+        interval_minutes=config.interval_minutes,
+        schedule_mode=config.schedule_mode,
+        daily_time=config.daily_time
     )
     await update_scheduler()
     return {"status": "ok"}
@@ -302,7 +322,9 @@ async def api_save_f1_config(config: F1ConfigRequest):
         output_folder=config.output_folder,
         tvdb_api_key=config.tvdb_api_key,
         enabled=config.enabled,
-        scan_interval_minutes=config.scan_interval_minutes
+        scan_interval_minutes=config.scan_interval_minutes,
+        schedule_mode=config.schedule_mode,
+        daily_time=config.daily_time
     )
     await update_f1_scheduler()
     return {"status": "ok"}
@@ -351,6 +373,50 @@ async def api_get_f1_status():
         "scan": scan_status,
         "f1_job_active": scheduler_status.get("f1_job_active", False),
         "f1_next_run": scheduler_status.get("f1_next_run")
+    }
+
+
+# Download Cleanup API
+@app.get("/api/cleanup/config")
+async def api_get_cleanup_config():
+    config = await get_cleanup_config()
+    return {"config": config}
+
+
+@app.post("/api/cleanup/config")
+async def api_save_cleanup_config(config: CleanupConfigRequest):
+    await save_cleanup_config(
+        watch_folder=config.watch_folder,
+        min_age_minutes=config.min_age_minutes,
+        remove_junk=config.remove_junk,
+        enabled=config.enabled,
+        schedule_mode=config.schedule_mode,
+        interval_minutes=config.interval_minutes,
+        daily_time=config.daily_time
+    )
+    await update_cleanup_scheduler()
+    return {"status": "ok"}
+
+
+@app.post("/api/cleanup/scan")
+async def api_cleanup_scan(dry_run: bool = False):
+    result = await run_cleanup(dry_run=dry_run)
+    return result
+
+
+@app.get("/api/cleanup/activity")
+async def api_get_cleanup_activity(limit: int = 50, status: str = None):
+    activity = await get_cleanup_activity_log(limit, status)
+    return {"activity": activity}
+
+
+@app.get("/api/cleanup/status")
+async def api_get_cleanup_status():
+    scheduler_status = get_scheduler_status()
+    return {
+        "scan": get_cleanup_status(),
+        "job_active": scheduler_status.get("cleanup_job_active", False),
+        "next_run": scheduler_status.get("cleanup_next_run")
     }
 
 

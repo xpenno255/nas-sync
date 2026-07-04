@@ -6,11 +6,13 @@ A lightweight Docker container with a web UI for syncing folders to a NAS using 
 
 - **Web UI** for managing sync configurations
 - **Multiple folder mappings** - sync different source folders to different NAS destinations
-- **Automatic scheduling** - configurable sync interval
+- **Flexible scheduling** - run every N minutes, hourly, or once a day at a configurable time
 - **NAS online detection** - only syncs when NAS is reachable
 - **Post-sync actions** - trigger Plex library refresh or custom webhooks
 - **Sync logs** - track sync history and status
 - **Delete after sync** - optionally remove source files after successful transfer
+- **F1 organizer** - rename and file F1 session recordings using TheTVDB episode data
+- **Download cleanup** - rescue hidden/obfuscated video files in the nzbget completed folder that Sonarr/Radarr couldn't parse, by renaming them to their job folder name (with dry-run preview and optional junk removal)
 
 ## Quick Start
 
@@ -157,11 +159,30 @@ Add mappings to define what syncs where:
 Configure automatic sync:
 
 - **Enable/Disable**: Toggle automatic syncing
-- **Interval**: How often to check and sync (in minutes)
+- **Schedule mode**:
+  - *Every N minutes* — classic interval
+  - *Hourly* — runs on the hour
+  - *Daily at* — runs once per day at a configurable time (container `TZ`)
 
 The scheduler only runs sync when:
 1. The NAS is online (responds to ping)
 2. There are enabled mappings
+
+The same three schedule modes are available for the F1 organizer scan and the download cleanup scan.
+
+### Download Cleanup
+
+Occasionally a release unpacks to a hidden dot-file or a gibberish filename that
+Sonarr/Radarr can't parse, so it never gets imported and slowly fills the disk.
+The Cleanup tab watches your nzbget completed-downloads folder and renames such
+video files to their job folder's name (which is the parseable release name), so
+the *arr stack picks them up on its next scan.
+
+- **Watch folder**: the nzbget completed downloads directory (mount it into the container)
+- **Min file age**: folders modified more recently than this are left alone (avoids touching active unpacks/imports)
+- **Remove junk files**: optionally delete leftover `.par2`/`.sfv`/`.srr`/`.nzb` and hidden non-video files
+- **Dry run**: preview exactly what would happen without touching anything
+- Runs on demand or on its own schedule (interval / hourly / daily)
 
 ### Post-Sync Actions
 
@@ -270,6 +291,10 @@ The application exposes a REST API:
 | `/api/logs` | GET | Get sync logs |
 | `/api/scheduler` | GET/POST | Scheduler configuration |
 | `/api/actions` | GET/POST | Post-sync actions |
+| `/api/cleanup/config` | GET/POST | Download cleanup configuration |
+| `/api/cleanup/scan?dry_run=true\|false` | POST | Run cleanup scan (dry-run previews without changes) |
+| `/api/cleanup/activity` | GET | Cleanup activity log |
+| `/api/cleanup/status` | GET | Cleanup scan/schedule status |
 
 ## License
 

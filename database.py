@@ -3,7 +3,17 @@ import json
 from pathlib import Path
 from datetime import datetime
 
-DATABASE_PATH = Path("/config/nas_sync.db")
+import os
+
+DATABASE_PATH = Path(os.environ.get("NAS_SYNC_DB", "/config/nas_sync.db"))
+
+
+async def _ensure_column(db, table: str, column: str, decl: str):
+    """Add a column to an existing table if it's missing (simple migration)."""
+    async with db.execute(f"PRAGMA table_info({table})") as cursor:
+        existing = [row[1] for row in await cursor.fetchall()]
+    if column not in existing:
+        await db.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
 
 
 async def init_db():
@@ -127,6 +137,45 @@ async def init_db():
             INSERT OR IGNORE INTO f1_config (id, watch_folder, output_folder, tvdb_api_key)
             VALUES (1, '', '', '')
         """)
+
+        # Download cleanup config table
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS cleanup_config (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                watch_folder TEXT NOT NULL DEFAULT '',
+                min_age_minutes INTEGER DEFAULT 60,
+                remove_junk INTEGER DEFAULT 0,
+                enabled INTEGER DEFAULT 0,
+                schedule_mode TEXT DEFAULT 'hourly',
+                interval_minutes INTEGER DEFAULT 60,
+                daily_time TEXT DEFAULT '03:00',
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        # Download cleanup activity log
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS cleanup_activity_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                job_folder TEXT NOT NULL,
+                original_name TEXT NOT NULL,
+                new_name TEXT,
+                action TEXT NOT NULL,
+                message TEXT,
+                dry_run INTEGER DEFAULT 0,
+                processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        await db.execute("""
+            INSERT OR IGNORE INTO cleanup_config (id, watch_folder) VALUES (1, '')
+        """)
+
+        # Migrations: schedule mode support for existing installs
+        await _ensure_column(db, "scheduler_config", "schedule_mode", "TEXT DEFAULT 'interval'")
+        await _ensure_column(db, "scheduler_config", "daily_time", "TEXT DEFAULT '03:00'")
+        await _ensure_column(db, "f1_config", "schedule_mode", "TEXT DEFAULT 'interval'")
+        await _ensure_column(db, "f1_config", "daily_time", "TEXT DEFAULT '03:00'")
 
         await db.commit()
 
@@ -255,19 +304,25 @@ async def get_scheduler_config():
         db.row_factory = aiosqlite.Row
         async with db.execute("SELECT * FROM scheduler_config WHERE id = 1") as cursor:
             row = await cursor.fetchone()
-            return dict(row) if row else {"enabled": True, "interval_minutes": 15}
+            return dict(row) if row else {
+                "enabled": True, "interval_minutes": 15,
+                "schedule_mode": "interval", "daily_time": "03:00"
+            }
 
 
-async def save_scheduler_config(enabled: bool, interval_minutes: int):
+async def save_scheduler_config(enabled: bool, interval_minutes: int,
+                                schedule_mode: str = "interval", daily_time: str = "03:00"):
     async with aiosqlite.connect(DATABASE_PATH) as db:
         await db.execute("""
-            INSERT INTO scheduler_config (id, enabled, interval_minutes, updated_at)
-            VALUES (1, ?, ?, CURRENT_TIMESTAMP)
+            INSERT INTO scheduler_config (id, enabled, interval_minutes, schedule_mode, daily_time, updated_at)
+            VALUES (1, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             ON CONFLICT(id) DO UPDATE SET
                 enabled = excluded.enabled,
                 interval_minutes = excluded.interval_minutes,
+                schedule_mode = excluded.schedule_mode,
+                daily_time = excluded.daily_time,
                 updated_at = CURRENT_TIMESTAMP
-        """, (int(enabled), interval_minutes))
+        """, (int(enabled), interval_minutes, schedule_mode, daily_time))
         await db.commit()
 
 
@@ -319,24 +374,30 @@ async def get_f1_config():
             row = await cursor.fetchone()
             return dict(row) if row else {
                 "watch_folder": "", "output_folder": "", "tvdb_api_key": "",
-                "enabled": 0, "scan_interval_minutes": 15
+                "enabled": 0, "scan_interval_minutes": 15,
+                "schedule_mode": "interval", "daily_time": "03:00"
             }
 
 
 async def save_f1_config(watch_folder: str, output_folder: str, tvdb_api_key: str,
-                         enabled: bool, scan_interval_minutes: int):
+                         enabled: bool, scan_interval_minutes: int,
+                         schedule_mode: str = "interval", daily_time: str = "03:00"):
     async with aiosqlite.connect(DATABASE_PATH) as db:
         await db.execute("""
-            INSERT INTO f1_config (id, watch_folder, output_folder, tvdb_api_key, enabled, scan_interval_minutes, updated_at)
-            VALUES (1, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            INSERT INTO f1_config (id, watch_folder, output_folder, tvdb_api_key, enabled,
+                                   scan_interval_minutes, schedule_mode, daily_time, updated_at)
+            VALUES (1, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             ON CONFLICT(id) DO UPDATE SET
                 watch_folder = excluded.watch_folder,
                 output_folder = excluded.output_folder,
                 tvdb_api_key = excluded.tvdb_api_key,
                 enabled = excluded.enabled,
                 scan_interval_minutes = excluded.scan_interval_minutes,
+                schedule_mode = excluded.schedule_mode,
+                daily_time = excluded.daily_time,
                 updated_at = CURRENT_TIMESTAMP
-        """, (watch_folder, output_folder, tvdb_api_key, int(enabled), scan_interval_minutes))
+        """, (watch_folder, output_folder, tvdb_api_key, int(enabled),
+              scan_interval_minutes, schedule_mode, daily_time))
         await db.commit()
 
 
@@ -395,6 +456,70 @@ async def create_f1_activity_log(original_filename: str, new_filename: str = Non
             DELETE FROM f1_activity_log WHERE id NOT IN (SELECT id FROM f1_activity_log ORDER BY processed_at DESC LIMIT 200)
         """)
         await db.commit()
+
+
+# Download cleanup config functions
+async def get_cleanup_config():
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("SELECT * FROM cleanup_config WHERE id = 1") as cursor:
+            row = await cursor.fetchone()
+            return dict(row) if row else {
+                "watch_folder": "", "min_age_minutes": 60, "remove_junk": 0,
+                "enabled": 0, "schedule_mode": "hourly",
+                "interval_minutes": 60, "daily_time": "03:00"
+            }
+
+
+async def save_cleanup_config(watch_folder: str, min_age_minutes: int, remove_junk: bool,
+                              enabled: bool, schedule_mode: str, interval_minutes: int,
+                              daily_time: str):
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        await db.execute("""
+            INSERT INTO cleanup_config (id, watch_folder, min_age_minutes, remove_junk, enabled,
+                                        schedule_mode, interval_minutes, daily_time, updated_at)
+            VALUES (1, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(id) DO UPDATE SET
+                watch_folder = excluded.watch_folder,
+                min_age_minutes = excluded.min_age_minutes,
+                remove_junk = excluded.remove_junk,
+                enabled = excluded.enabled,
+                schedule_mode = excluded.schedule_mode,
+                interval_minutes = excluded.interval_minutes,
+                daily_time = excluded.daily_time,
+                updated_at = CURRENT_TIMESTAMP
+        """, (watch_folder, min_age_minutes, int(remove_junk), int(enabled),
+              schedule_mode, interval_minutes, daily_time))
+        await db.commit()
+
+
+async def create_cleanup_activity_log(job_folder: str, original_name: str, new_name: str = None,
+                                      action: str = "renamed", message: str = None,
+                                      dry_run: bool = False):
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        await db.execute("""
+            INSERT INTO cleanup_activity_log (job_folder, original_name, new_name, action, message, dry_run)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (job_folder, original_name, new_name, action, message, int(dry_run)))
+        await db.execute("""
+            DELETE FROM cleanup_activity_log
+            WHERE id NOT IN (SELECT id FROM cleanup_activity_log ORDER BY processed_at DESC LIMIT 500)
+        """)
+        await db.commit()
+
+
+async def get_cleanup_activity_log(limit: int = 50, action: str = None):
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        if action:
+            query = "SELECT * FROM cleanup_activity_log WHERE action = ? ORDER BY processed_at DESC LIMIT ?"
+            params = (action, limit)
+        else:
+            query = "SELECT * FROM cleanup_activity_log ORDER BY processed_at DESC LIMIT ?"
+            params = (limit,)
+        async with db.execute(query, params) as cursor:
+            rows = await cursor.fetchall()
+            return [dict(row) for row in rows]
 
 
 async def get_f1_activity_log(limit: int = 50, status: str = None):

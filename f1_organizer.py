@@ -365,8 +365,13 @@ async def scan_and_organize() -> dict:
     results = {"status": "completed", "processed": 0, "moved": 0, "unmatched": 0, "errors": 0}
 
     try:
-        # Find all video files in watch folder
-        files = [f for f in watch_folder.rglob('*') if f.is_file() and f.suffix.lower() in VIDEO_EXTENSIONS]
+        # Find all video files in watch folder. Excludes output_base in case it's
+        # nested inside watch_folder, so already-organized/duplicate files aren't rescanned.
+        files = [
+            f for f in watch_folder.rglob('*')
+            if f.is_file() and f.suffix.lower() in VIDEO_EXTENSIONS
+            and output_base.resolve() not in f.resolve().parents
+        ]
 
         for file_path in files:
             parsed = parse_f1_filename(file_path.name)
@@ -410,15 +415,28 @@ async def scan_and_organize() -> dict:
             season_folder = output_base / "F1" / f"Season {season}"
             dest_path = season_folder / new_filename
 
-            # Check for duplicates
+            # Check for duplicates. Move the source out of the watch folder so it
+            # isn't rescanned and re-logged as a duplicate on every future scan.
             if dest_path.exists():
+                duplicates_folder = output_base / "F1" / "_duplicates"
+                duplicate_dest = duplicates_folder / file_path.name
+
+                try:
+                    duplicates_folder.mkdir(parents=True, exist_ok=True)
+                    if duplicate_dest.exists():
+                        duplicate_dest = duplicates_folder / f"{file_path.stem}.{int(datetime.now().timestamp())}{file_path.suffix}"
+                    shutil.move(str(file_path), str(duplicate_dest))
+                    message = f"Destination already exists ({dest_path}) — moved to {duplicate_dest}"
+                except OSError as e:
+                    message = f"Destination already exists ({dest_path}) — failed to move source aside: {e}"
+
                 await create_f1_activity_log(
                     original_filename=file_path.name,
                     new_filename=new_filename,
                     season=season,
                     episode_number=ep_num,
                     status="duplicate",
-                    message=f"Destination already exists: {dest_path}"
+                    message=message
                 )
                 continue
 

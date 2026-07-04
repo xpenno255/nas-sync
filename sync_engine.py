@@ -83,17 +83,23 @@ async def run_rsync(source: str, destination: str, ssh_user: str, hostname: str,
     """Run rsync to sync files from source to destination on remote NAS."""
     
     # Build rsync command
-    ssh_cmd = f"ssh -i {ssh_key_path} -p {ssh_port} -o StrictHostKeyChecking=accept-new"
-    
+    ssh_cmd = (
+        f"ssh -i {ssh_key_path} -p {ssh_port} "
+        "-o StrictHostKeyChecking=accept-new -o BatchMode=yes -o LogLevel=ERROR"
+    )
+
     # Ensure source path ends with / to sync contents
     if not source.endswith('/'):
         source = source + '/'
-    
+
+    # Note: no -z — compression triggers "deflate on token returned 0" protocol
+    # errors between mismatched rsync versions, and media files don't compress.
     cmd = [
         "rsync",
-        "-avz",
+        "-av",
         "--stats",
-        "--progress",
+        "--partial",
+        "--timeout=600",
         "-e", ssh_cmd,
     ]
     
