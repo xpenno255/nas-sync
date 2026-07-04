@@ -18,6 +18,7 @@ library ourselves, since only the *arr apps have the metadata to do that properl
 
 import re
 import time
+import shutil
 import asyncio
 import logging
 from pathlib import Path
@@ -192,6 +193,28 @@ async def _extract_stuck_archive(job_folder: Path, rar_parts: list, dry_run: boo
         })
         return
 
+    # Extraction briefly needs room for the new media file alongside the still-present
+    # RAR parts, so require some headroom rather than let unar fail with an opaque
+    # "opening file failed" when the disk is nearly full.
+    try:
+        free_space = shutil.disk_usage(job_folder).free
+    except OSError:
+        free_space = None
+    if free_space is not None and free_space < total_size * 1.1:
+        results["errors"] += 1
+        message = (
+            f"Skipped: only {free_space / (1<<30):.1f} GB free, "
+            f"need ~{total_size * 1.1 / (1<<30):.1f} GB to safely extract"
+        )
+        await create_cleanup_activity_log(
+            job_folder.name, entrypoint.name, None, "error", message, dry_run
+        )
+        results["actions"].append({
+            "job_folder": job_folder.name, "original": entrypoint.name,
+            "new": None, "action": "error", "message": message
+        })
+        return
+
     ok, error = await _extract_rar(entrypoint, job_folder)
     if not ok:
         results["errors"] += 1
@@ -245,6 +268,32 @@ async def _extract_stuck_archive(job_folder: Path, rar_parts: list, dry_run: boo
     await _rename_obfuscated(job_folder, extracted_media, dry_run, results)
 
 
+async def _cleanup_redundant_rar_parts(job_folder: Path, rar_parts: list, dry_run: bool, results: dict):
+    """Remove RAR parts left behind once a valid media file already exists —
+    e.g. after a prior manual extraction, or a partial success some other way.
+    Always removed regardless of the remove_junk toggle: once real media exists,
+    these are pure disk waste, not the "leave it alone" kind of junk."""
+    for part in rar_parts:
+        try:
+            if not dry_run:
+                part.unlink()
+            results["junk_removed"] += 1
+            await create_cleanup_activity_log(
+                job_folder.name, part.name, None, "junk_removed",
+                "Removed redundant RAR part (media already present)", dry_run
+            )
+            results["actions"].append({
+                "job_folder": job_folder.name, "original": part.name,
+                "new": None, "action": "junk_removed",
+                "message": "Removed redundant RAR part (media already present)"
+            })
+        except OSError as e:
+            results["errors"] += 1
+            await create_cleanup_activity_log(
+                job_folder.name, part.name, None, "error", str(e), dry_run
+            )
+
+
 async def _process_job_folder(job_folder: Path, remove_junk: bool, dry_run: bool, results: dict):
     """Fix one stuck job folder: rename obfuscated media, or extract a stuck RAR set."""
     files = [f for f in job_folder.rglob('*') if f.is_file()]
@@ -253,18 +302,19 @@ async def _process_job_folder(job_folder: Path, remove_junk: bool, dry_run: bool
         f for f in files
         if f.suffix.lower() in MEDIA_EXTENSIONS and not _in_sample_dir(f, job_folder)
     ]
+    rar_parts = [
+        f for f in files
+        if RAR_VOLUME_PATTERN.search(f.name) and not _in_sample_dir(f, job_folder)
+    ]
 
     if media_files:
         await _rename_obfuscated(job_folder, media_files, dry_run, results)
-    else:
-        rar_parts = [
-            f for f in files
-            if RAR_VOLUME_PATTERN.search(f.name) and not _in_sample_dir(f, job_folder)
-        ]
         if rar_parts:
-            await _extract_stuck_archive(job_folder, rar_parts, dry_run, results)
-        # else: nothing usable and no archive to extract — likely still downloading
-        # or genuinely empty; leave it alone.
+            await _cleanup_redundant_rar_parts(job_folder, rar_parts, dry_run, results)
+    elif rar_parts:
+        await _extract_stuck_archive(job_folder, rar_parts, dry_run, results)
+    # else: nothing usable and no archive to extract — likely still downloading
+    # or genuinely empty; leave it alone.
 
     if remove_junk:
         for f in files:
