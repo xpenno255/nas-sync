@@ -777,8 +777,8 @@ async function runCleanupScan(dryRun) {
 
         if (result.status === 'completed') {
             showToast(dryRun
-                ? `Preview: ${result.renamed} to rename, ${result.junk_removed} junk`
-                : `Cleanup done: ${result.renamed} renamed, ${result.junk_removed} junk removed`,
+                ? `Preview: ${result.renamed} to rename, ${result.extracted || 0} to extract, ${result.junk_removed} junk`
+                : `Cleanup done: ${result.renamed} renamed, ${result.extracted || 0} extracted, ${result.junk_removed} junk removed`,
                 result.errors > 0 ? 'error' : 'success');
         } else {
             showToast(`Cleanup ${result.status}: ${result.reason || ''}`, 'error');
@@ -811,6 +811,7 @@ function renderCleanupResults(result, dryRun) {
     summary.innerHTML =
         stat(result.scanned || 0, 'scanned') +
         stat(result.renamed || 0, 'renamed', 'pos') +
+        stat(result.extracted || 0, 'extracted', 'pos') +
         stat(result.junk_removed || 0, 'junk removed') +
         stat(result.skipped || 0, 'skipped') +
         stat(result.errors || 0, 'errors', result.errors > 0 ? 'neg' : '');
@@ -821,7 +822,7 @@ function renderCleanupResults(result, dryRun) {
         return;
     }
 
-    const badgeFor = a => a === 'renamed' ? 'success' : a === 'junk_removed' ? 'warning' : a === 'error' ? 'error' : 'muted';
+    const badgeFor = a => (a === 'renamed' || a === 'extracted') ? 'success' : a === 'junk_removed' ? 'warning' : a === 'error' ? 'error' : 'muted';
     body.innerHTML = `
         <table>
             <thead><tr><th>Job folder</th><th>Original</th><th>New name</th><th>Action</th><th>Detail</th></tr></thead>
@@ -850,7 +851,7 @@ async function loadCleanupActivity() {
         return;
     }
 
-    const badgeFor = a => a === 'renamed' ? 'success' : a === 'junk_removed' ? 'warning' : a === 'error' ? 'error' : 'muted';
+    const badgeFor = a => (a === 'renamed' || a === 'extracted') ? 'success' : a === 'junk_removed' ? 'warning' : a === 'error' ? 'error' : 'muted';
     container.innerHTML = `
         <table>
             <thead><tr><th>Time</th><th>Job folder</th><th>Original</th><th>New name</th><th>Action</th><th></th></tr></thead>

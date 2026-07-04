@@ -172,17 +172,29 @@ The same three schedule modes are available for the F1 organizer scan and the do
 
 ### Download Cleanup
 
-Occasionally a release unpacks to a hidden dot-file or a gibberish filename that
-Sonarr/Radarr can't parse, so it never gets imported and slowly fills the disk.
-The Cleanup tab watches your nzbget completed-downloads folder and renames such
-video files to their job folder's name (which is the parseable release name), so
-the *arr stack picks them up on its next scan.
+Two failure modes leave nzbget completed downloads stuck forever, never picked up
+by Sonarr/Radarr/Lidarr, slowly filling the disk:
 
-- **Watch folder**: the nzbget completed downloads directory (mount it into the container)
-- **Min file age**: folders modified more recently than this are left alone (avoids touching active unpacks/imports)
-- **Remove junk files**: optionally delete leftover `.par2`/`.sfv`/`.srr`/`.nzb` and hidden non-video files
-- **Dry run**: preview exactly what would happen without touching anything
+1. The media file has a hidden or gibberish name the *arr stack can't parse.
+2. nzbget's own unpacker never extracted a multi-part RAR set, so there's no
+   media file at all yet — just `.rar`/`.r00`-style archive parts.
+
+The Cleanup tab watches your nzbget `completed` folder (which nzbget organizes as
+`completed/<category>/<job-folder>/...`, e.g. `completed/TV/`, `completed/Movies/`,
+`completed/Music/`) and, for each stuck job folder, either renames the obfuscated
+media file to the job folder's name (the parseable release name) or extracts a
+stuck RAR set and applies the same rename check to the result. Either way the fix
+happens in place — Sonarr/Radarr/Lidarr's own already-configured import scan does
+the actual move into your library, since only they have the metadata to do that
+correctly.
+
+- **Watch folder**: the nzbget `completed` directory itself (the parent of the category subfolders), mounted into the container
+- **Min file age**: job folders modified more recently than this are left alone (avoids touching active downloads/unpacks)
+- **Remove junk files**: optionally delete leftover `.par2`/`.sfv`/`.srr`/`.nzb` and hidden non-media files (RAR parts are always cleaned up automatically after a successful extraction, regardless of this setting)
+- **Dry run**: preview exactly what would happen — including what a RAR extraction would do — without touching anything
 - Runs on demand or on its own schedule (interval / hourly / daily)
+
+RAR extraction requires the `unar` binary, which is included in the Docker image.
 
 ### Post-Sync Actions
 

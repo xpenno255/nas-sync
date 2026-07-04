@@ -1,10 +1,12 @@
 FROM python:3.11-slim
 
 # Install system dependencies
+# unar: extracts multi-part RAR sets nzbget's own unpacker left behind (cleanup feature)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     rsync \
     openssh-client \
     iputils-ping \
+    unar \
     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
