@@ -130,21 +130,22 @@ function setLed(el, state) {
     el.className = 'led' + (state ? ` is-${state}` : '');
 }
 
-// Fill a "next run" readout line
-function renderNextRun(elId, iso, active, label) {
+// Fill a "next run" readout line. `running` means executing right now;
+// `enabled` distinguishes "schedule turned off" from "no job for another reason".
+function renderNextRun(elId, iso, running, label, enabled) {
     const el = document.getElementById(elId);
     if (!el) return;
-    if (active) { el.innerHTML = `<strong>Running now…</strong>`; return; }
+    if (running) { el.innerHTML = `<strong>Running now…</strong>`; return; }
     const n = formatNextRun(iso);
-    if (!n) { el.innerHTML = `${label || 'Next run'}: not scheduled`; return; }
-    el.innerHTML = `${label || 'Next run'}: <strong>${esc(n.abs)}</strong> · ${esc(n.rel)}`;
+    if (n) { el.innerHTML = `${label || 'Next run'}: <strong>${esc(n.abs)}</strong> · ${esc(n.rel)}`; return; }
+    if (enabled === false) { el.innerHTML = `Schedule disabled — turn on the toggle above and save`; return; }
+    el.innerHTML = `${label || 'Next run'}: not scheduled`;
 }
 
-// Fill a compact rail readout
-function renderRail(ledId, valId, iso, active) {
+// Fill a compact rail readout: scheduled (standby LED + time) or off
+function renderRail(ledId, valId, iso) {
     const led = document.getElementById(ledId);
     const val = document.getElementById(valId);
-    if (active) { setLed(led, 'active'); if (val) val.textContent = 'Running…'; return; }
     const n = formatNextRun(iso);
     if (!n) { setLed(led, ''); if (val) val.textContent = 'Off'; return; }
     setLed(led, 'standby');
@@ -217,9 +218,9 @@ async function loadDashboardPanel() {
     try {
         const data = await api('/scheduler');
         const s = data.status || {};
-        renderRail('rail-sync-led', 'rail-sync-val', s.next_run, s.job_active);
-        renderRail('rail-f1-led', 'rail-f1-val', s.f1_next_run, s.f1_job_active);
-        renderRail('rail-cl-led', 'rail-cl-val', s.cleanup_next_run, s.cleanup_job_active);
+        renderRail('rail-sync-led', 'rail-sync-val', s.next_run);
+        renderRail('rail-f1-led', 'rail-f1-val', s.f1_next_run);
+        renderRail('rail-cl-led', 'rail-cl-val', s.cleanup_next_run);
     } catch (e) {
         // leave defaults
     }
@@ -474,7 +475,7 @@ async function loadSchedulerConfig() {
     document.getElementById('scheduler-interval').value = c.interval_minutes || 15;
     document.getElementById('sched-daily-time').value = c.daily_time || '03:00';
     bindScheduleMode('sched-mode', 'sched-interval-wrap', 'sched-time-wrap');
-    renderNextRun('sched-next-run', (data.status || {}).next_run, (data.status || {}).job_active, 'Next sync');
+    renderNextRun('sched-next-run', (data.status || {}).next_run, false, 'Next sync', !!c.enabled);
 }
 
 async function saveSchedulerConfig() {
@@ -603,7 +604,7 @@ async function loadF1Config() {
     // Next-run readout from scheduler status
     try {
         const sched = await api('/scheduler');
-        renderNextRun('f1-next-run', (sched.status || {}).f1_next_run, (sched.status || {}).f1_job_active, 'Next scan');
+        renderNextRun('f1-next-run', (sched.status || {}).f1_next_run, false, 'Next scan', !!config.enabled);
     } catch (e) { /* ignore */ }
 }
 
@@ -735,7 +736,7 @@ async function loadCleanupConfig() {
 
     try {
         const st = await api('/cleanup/status');
-        renderNextRun('cl-next-run', st.next_run, st.job_active, 'Next cleanup');
+        renderNextRun('cl-next-run', st.next_run, !!(st.scan && st.scan.in_progress), 'Next cleanup', !!c.enabled);
     } catch (e) { /* ignore */ }
 }
 
