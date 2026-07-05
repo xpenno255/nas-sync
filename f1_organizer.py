@@ -175,11 +175,13 @@ def parse_f1_filename(filename: str) -> Optional[dict]:
         episode_num = int(sxe_match.group(2))
         remainder = sxe_match.group(3)
     else:
-        # Format: 2025.Round20.xxx or just 2025.xxx
-        year_match = re.match(r'(\d{4})[.\s_-]*(.*)', remainder)
+        # Format: 2025.Round20.xxx, 2026x09.xxx (year-x-round), or just 2025.xxx
+        year_match = re.match(r'(\d{4})(?:[xX](\d{1,2}))?[.\s_-]*(.*)', remainder)
         if year_match:
             season = int(year_match.group(1))
-            remainder = year_match.group(2)
+            if year_match.group(2):
+                round_num = int(year_match.group(2))
+            remainder = year_match.group(3)
 
             # Check for Round number
             round_match = re.match(r'[Rr](?:ound)?[.\s_-]*(\d{1,2})[.\s_-]*(.*)', remainder)
