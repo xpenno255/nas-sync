@@ -478,22 +478,19 @@ async def scan_and_organize() -> dict:
 
         touched_job_folders = set()
 
-        for file_path in files:
-            parsed = parse_f1_filename(file_path.name)
-            if not parsed:
-                continue  # Not an F1 file, skip silently
-
+        async def organize_one(file_path, parsed, segment=None):
+            """Match and move a single file; returns True if it left the watch folder."""
             results["processed"] += 1
             season = parsed["season"]
             season_folder = output_base / "F1" / f"Season {season}"
-            job_folder = _job_folder_for(file_path, watch_folder)
+            suffix = f" - {segment}" if segment else ""
 
             episodes = await get_f1_episodes(season)
             matched = match_episode(parsed, episodes) if episodes else None
 
             if matched:
                 ep_num = matched["episode_number"]
-                new_filename = f"F1 - S{season}E{ep_num:02d} - {matched['episode_name']}{parsed['extension']}"
+                new_filename = f"F1 - S{season}E{ep_num:02d} - {matched['episode_name']}{suffix}{parsed['extension']}"
                 moved = await _move_file(
                     file_path, season_folder, new_filename, season, ep_num,
                     "moved", f"Moved to {season_folder / new_filename}",
@@ -508,7 +505,7 @@ async def scan_and_organize() -> dict:
                     f"no episode cache for season {season}" if not episodes
                     else f"no TheTVDB match for '{parsed['gp_name']} {parsed['session']}'"
                 )
-                new_filename = f"F1 - S{season} - {parsed['gp_name']} ({parsed['session']}){parsed['extension']}"
+                new_filename = f"F1 - S{season} - {parsed['gp_name']} ({parsed['session']}){suffix}{parsed['extension']}"
                 moved = await _move_file(
                     file_path, season_folder, new_filename, season, None,
                     "moved_unmatched",
@@ -518,8 +515,39 @@ async def scan_and_organize() -> dict:
                 if moved:
                     results["moved_unmatched"] += 1
 
-            if moved and job_folder:
-                touched_job_folders.add(job_folder)
+            if moved:
+                job = _job_folder_for(file_path, watch_folder)
+                if job:
+                    touched_job_folders.add(job)
+            return moved
+
+        # First pass: files whose own name parses. Collect the rest per job folder.
+        unparsed_by_job = {}
+        for file_path in files:
+            parsed = parse_f1_filename(file_path.name)
+            if parsed:
+                await organize_one(file_path, parsed)
+                continue
+            job_folder = _job_folder_for(file_path, watch_folder)
+            if job_folder:
+                unparsed_by_job.setdefault(job_folder, []).append(file_path)
+
+        # Second pass: Sky-style multi-part releases unpack to segment files with
+        # generic names (01.Pre-Race.Buildup.mp4, 02.Race.Session.mp4, ...) — the
+        # release name lives on the job folder. Parse the folder name instead: the
+        # largest file (the session itself) gets the canonical episode name, the
+        # extras keep a label from their own filename.
+        for job_folder, job_files in unparsed_by_job.items():
+            folder_parsed = parse_f1_filename(job_folder.name + job_files[0].suffix.lower())
+            if not folder_parsed:
+                continue  # Not an F1 job folder, skip silently
+
+            job_files.sort(key=lambda f: f.stat().st_size, reverse=True)
+            for idx, file_path in enumerate(job_files):
+                parsed = dict(folder_parsed)
+                parsed["extension"] = file_path.suffix.lower()
+                segment = re.sub(r'[._-]+', ' ', file_path.stem).strip() if idx > 0 else None
+                await organize_one(file_path, parsed, segment=segment)
 
         await _cleanup_job_folders(touched_job_folders, watch_folder)
 
