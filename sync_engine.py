@@ -1,4 +1,5 @@
 import asyncio
+import os
 import subprocess
 import re
 import httpx
@@ -190,6 +191,34 @@ async def execute_webhook(config: dict):
         logger.info(f"Webhook {url} returned status {response.status_code}")
 
 
+def prune_empty_dirs(source: str) -> int:
+    """Remove empty subdirectories left behind by rsync --remove-source-files.
+
+    rsync deletes the files but not the folders, so job/season folder husks pile
+    up in the source. Walks bottom-up; the source root itself is kept.
+    """
+    removed = 0
+    source = source.rstrip('/')
+    for dirpath, dirnames, filenames in os.walk(source, topdown=False):
+        if dirpath == source:
+            continue
+        if not dirnames and not filenames:
+            try:
+                os.rmdir(dirpath)
+                removed += 1
+            except OSError:
+                pass
+        else:
+            # os.walk snapshots dirnames before children are removed — re-check
+            try:
+                if not os.listdir(dirpath):
+                    os.rmdir(dirpath)
+                    removed += 1
+            except OSError:
+                pass
+    return removed
+
+
 async def sync_mapping(mapping: dict, nas_config: dict) -> bool:
     """Sync a single folder mapping."""
     global current_sync_mapping
@@ -215,8 +244,14 @@ async def sync_mapping(mapping: dict, nas_config: dict) -> bool:
         
         end_time = datetime.utcnow()
         duration = (end_time - start_time).total_seconds()
-        
+
         status = "success" if success else "error"
+
+        # rsync --remove-source-files leaves empty folder husks behind
+        if success and mapping['delete_source']:
+            pruned = prune_empty_dirs(mapping['source_path'])
+            if pruned:
+                logger.info(f"Pruned {pruned} empty directories under {mapping['source_path']}")
         
         # Update mapping status
         await update_mapping_sync_status(mapping_id, status, message)

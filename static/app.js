@@ -667,7 +667,7 @@ async function loadF1Activity() {
         return;
     }
 
-    const badgeFor = s => s === 'moved' ? 'success' : s === 'unmatched' || s === 'duplicate' ? 'warning' : 'error';
+    const badgeFor = s => s === 'moved' ? 'success' : s === 'cleaned' ? 'info' : (s === 'moved_unmatched' || s === 'unmatched' || s === 'duplicate') ? 'warning' : 'error';
 
     container.innerHTML = `
         <table>
@@ -689,7 +689,7 @@ async function f1Scan() {
     try {
         showToast('Starting F1 scan…');
         const result = await api('/f1/scan', 'POST');
-        if (result.status === 'completed') showToast(`F1 scan complete: ${result.moved} moved, ${result.unmatched} unmatched`);
+        if (result.status === 'completed') showToast(`F1 scan complete: ${result.moved} moved, ${result.moved_unmatched || 0} moved with fallback name`);
         else showToast(`F1 scan ${result.status}: ${result.reason || ''}`, 'error');
         loadF1Activity();
     } catch (error) {

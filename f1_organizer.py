@@ -343,8 +343,107 @@ def match_episode(parsed: dict, episodes: list) -> Optional[dict]:
     return None
 
 
+def _is_sample(file_path: Path, watch_folder: Path) -> bool:
+    """Preview clip: 'sample' in the filename or in any parent folder name."""
+    if 'sample' in file_path.name.lower():
+        return True
+    try:
+        rel_parts = file_path.relative_to(watch_folder).parts[:-1]
+    except ValueError:
+        rel_parts = file_path.parts[:-1]
+    return any('sample' in part.lower() for part in rel_parts)
+
+
+def _job_folder_for(file_path: Path, watch_folder: Path) -> Optional[Path]:
+    """The top-level job folder under the watch folder that contains this file."""
+    try:
+        rel = file_path.relative_to(watch_folder)
+    except ValueError:
+        return None
+    if len(rel.parts) < 2:
+        return None  # loose file directly in the watch folder
+    return watch_folder / rel.parts[0]
+
+
+async def _move_file(file_path: Path, dest_folder: Path, new_filename: str,
+                     season: int, episode_number: Optional[int], status: str,
+                     message: str, output_base: Path, results: dict) -> bool:
+    """Move a file into the F1 library, handling duplicate destinations."""
+    dest_path = dest_folder / new_filename
+
+    # If the destination exists, park the source in _duplicates so it isn't
+    # rescanned and re-logged forever.
+    if dest_path.exists():
+        duplicates_folder = output_base / "F1" / "_duplicates"
+        duplicate_dest = duplicates_folder / file_path.name
+        try:
+            duplicates_folder.mkdir(parents=True, exist_ok=True)
+            if duplicate_dest.exists():
+                duplicate_dest = duplicates_folder / f"{file_path.stem}.{int(datetime.now().timestamp())}{file_path.suffix}"
+            shutil.move(str(file_path), str(duplicate_dest))
+            dup_message = f"Destination already exists ({dest_path}) — moved to {duplicate_dest}"
+        except OSError as e:
+            dup_message = f"Destination already exists ({dest_path}) — failed to move source aside: {e}"
+
+        await create_f1_activity_log(
+            original_filename=file_path.name, new_filename=new_filename,
+            season=season, episode_number=episode_number,
+            status="duplicate", message=dup_message
+        )
+        return True
+
+    try:
+        dest_folder.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(file_path), str(dest_path))
+        await create_f1_activity_log(
+            original_filename=file_path.name, new_filename=new_filename,
+            season=season, episode_number=episode_number,
+            status=status, message=message
+        )
+        logger.info(f"F1: {file_path.name} -> {new_filename}")
+        return True
+    except Exception as e:
+        await create_f1_activity_log(
+            original_filename=file_path.name, new_filename=new_filename,
+            season=season, episode_number=episode_number,
+            status="error", message=str(e)
+        )
+        results["errors"] += 1
+        logger.error(f"F1: Failed to move {file_path.name}: {e}")
+        return False
+
+
+async def _cleanup_job_folders(job_folders: set, watch_folder: Path):
+    """Remove job folders whose media has all been moved out (only junk remains)."""
+    for folder in job_folders:
+        try:
+            if not folder.is_dir() or folder.resolve() == watch_folder.resolve():
+                continue
+            remaining_media = [
+                f for f in folder.rglob('*')
+                if f.is_file() and f.suffix.lower() in VIDEO_EXTENSIONS
+                and 'sample' not in f.name.lower()
+            ]
+            if remaining_media:
+                continue
+            shutil.rmtree(folder)
+            await create_f1_activity_log(
+                original_filename=folder.name,
+                status="cleaned",
+                message="Removed job folder after moving its media"
+            )
+            logger.info(f"F1: removed emptied job folder {folder.name}")
+        except OSError as e:
+            logger.warning(f"F1: could not remove job folder {folder}: {e}")
+
+
 async def scan_and_organize() -> dict:
-    """Scan watch folder for F1 files, match, rename, and move them."""
+    """Scan watch folder for F1 files, match, rename, and move them.
+
+    Parsed F1 files are ALWAYS moved into the F1 library: matched files get the
+    TheTVDB episode name, unmatched ones get a best-effort "F1 - S<year> - <GP>
+    (<Session>)" fallback name so nothing is left behind in the downloads folder.
+    """
     global scan_in_progress
 
     if scan_in_progress:
@@ -362,16 +461,20 @@ async def scan_and_organize() -> dict:
         return {"status": "error", "reason": f"Watch folder does not exist: {watch_folder}"}
 
     scan_in_progress = True
-    results = {"status": "completed", "processed": 0, "moved": 0, "unmatched": 0, "errors": 0}
+    results = {"status": "completed", "processed": 0, "moved": 0, "moved_unmatched": 0, "errors": 0}
 
     try:
         # Find all video files in watch folder. Excludes output_base in case it's
-        # nested inside watch_folder, so already-organized/duplicate files aren't rescanned.
+        # nested inside watch_folder, and sample clips (which previously could get
+        # matched and moved as the real episode).
         files = [
             f for f in watch_folder.rglob('*')
             if f.is_file() and f.suffix.lower() in VIDEO_EXTENSIONS
             and output_base.resolve() not in f.resolve().parents
+            and not _is_sample(f, watch_folder)
         ]
+
+        touched_job_folders = set()
 
         for file_path in files:
             parsed = parse_f1_filename(file_path.name)
@@ -380,91 +483,43 @@ async def scan_and_organize() -> dict:
 
             results["processed"] += 1
             season = parsed["season"]
+            season_folder = output_base / "F1" / f"Season {season}"
+            job_folder = _job_folder_for(file_path, watch_folder)
 
             episodes = await get_f1_episodes(season)
+            matched = match_episode(parsed, episodes) if episodes else None
 
-            if not episodes:
-                # No cache — user needs to refresh manually via the Refresh TheTVDB button
-                await create_f1_activity_log(
-                    original_filename=file_path.name,
-                    season=season,
-                    status="unmatched",
-                    message=f"No episode cache for season {season} — use the Refresh TheTVDB button to populate it"
+            if matched:
+                ep_num = matched["episode_number"]
+                new_filename = f"F1 - S{season}E{ep_num:02d} - {matched['episode_name']}{parsed['extension']}"
+                moved = await _move_file(
+                    file_path, season_folder, new_filename, season, ep_num,
+                    "moved", f"Moved to {season_folder / new_filename}",
+                    output_base, results
                 )
-                results["unmatched"] += 1
-                continue
-
-            # Match against cached episodes
-            matched = match_episode(parsed, episodes)
-
-            if not matched:
-                await create_f1_activity_log(
-                    original_filename=file_path.name,
-                    season=season,
-                    status="unmatched",
-                    message=f"Could not match '{parsed['gp_name']} {parsed['session']}' to any TheTVDB episode"
+                if moved:
+                    results["moved"] += 1
+            else:
+                # No cache or no episode match — move it anyway with a best-effort
+                # name so it never lingers in the downloads folder.
+                reason = (
+                    f"no episode cache for season {season}" if not episodes
+                    else f"no TheTVDB match for '{parsed['gp_name']} {parsed['session']}'"
                 )
-                results["unmatched"] += 1
-                continue
-
-            # Build destination path
-            ep_num = matched["episode_number"]
-            ep_name = matched["episode_name"]
-            new_filename = f"F1 - S{season}E{ep_num:02d} - {ep_name}{parsed['extension']}"
-
-            season_folder = output_base / "F1" / f"Season {season}"
-            dest_path = season_folder / new_filename
-
-            # Check for duplicates. Move the source out of the watch folder so it
-            # isn't rescanned and re-logged as a duplicate on every future scan.
-            if dest_path.exists():
-                duplicates_folder = output_base / "F1" / "_duplicates"
-                duplicate_dest = duplicates_folder / file_path.name
-
-                try:
-                    duplicates_folder.mkdir(parents=True, exist_ok=True)
-                    if duplicate_dest.exists():
-                        duplicate_dest = duplicates_folder / f"{file_path.stem}.{int(datetime.now().timestamp())}{file_path.suffix}"
-                    shutil.move(str(file_path), str(duplicate_dest))
-                    message = f"Destination already exists ({dest_path}) — moved to {duplicate_dest}"
-                except OSError as e:
-                    message = f"Destination already exists ({dest_path}) — failed to move source aside: {e}"
-
-                await create_f1_activity_log(
-                    original_filename=file_path.name,
-                    new_filename=new_filename,
-                    season=season,
-                    episode_number=ep_num,
-                    status="duplicate",
-                    message=message
+                new_filename = f"F1 - S{season} - {parsed['gp_name']} ({parsed['session']}){parsed['extension']}"
+                moved = await _move_file(
+                    file_path, season_folder, new_filename, season, None,
+                    "moved_unmatched",
+                    f"Moved with fallback name ({reason}) to {season_folder / new_filename}",
+                    output_base, results
                 )
-                continue
+                if moved:
+                    results["moved_unmatched"] += 1
 
-            # Move file
-            try:
-                season_folder.mkdir(parents=True, exist_ok=True)
-                shutil.move(str(file_path), str(dest_path))
-                await create_f1_activity_log(
-                    original_filename=file_path.name,
-                    new_filename=new_filename,
-                    season=season,
-                    episode_number=ep_num,
-                    status="moved",
-                    message=f"Moved to {dest_path}"
-                )
-                results["moved"] += 1
-                logger.info(f"F1: {file_path.name} -> {new_filename}")
-            except Exception as e:
-                await create_f1_activity_log(
-                    original_filename=file_path.name,
-                    new_filename=new_filename,
-                    season=season,
-                    episode_number=ep_num,
-                    status="error",
-                    message=str(e)
-                )
-                results["errors"] += 1
-                logger.error(f"F1: Failed to move {file_path.name}: {e}")
+            if moved and job_folder:
+                touched_job_folders.add(job_folder)
+
+        await _cleanup_job_folders(touched_job_folders, watch_folder)
 
     except Exception as e:
         logger.error(f"F1 scan error: {e}")
