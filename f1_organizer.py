@@ -357,14 +357,24 @@ def _is_sample(file_path: Path, watch_folder: Path) -> bool:
 
 
 def _job_folder_for(file_path: Path, watch_folder: Path) -> Optional[Path]:
-    """The top-level job folder under the watch folder that contains this file."""
+    """The F1 release folder containing this file: the shallowest ancestor below
+    the watch folder whose name parses as an F1 release.
+
+    Keying on a parseable name (rather than "first folder under the watch
+    folder") lets the watch folder be the nzbget completed root — category
+    folders like Movies/TV/Music never parse as F1, so they can never be
+    selected as a job folder or removed by cleanup.
+    """
     try:
         rel = file_path.relative_to(watch_folder)
     except ValueError:
         return None
-    if len(rel.parts) < 2:
-        return None  # loose file directly in the watch folder
-    return watch_folder / rel.parts[0]
+    current = watch_folder
+    for part in rel.parts[:-1]:
+        current = current / part
+        if parse_f1_filename(part + file_path.suffix.lower()):
+            return current
+    return None
 
 
 async def _move_file(file_path: Path, dest_folder: Path, new_filename: str,
